@@ -4,3 +4,4 @@ pandas
 torch
 transformers
 sentence_transformers
+aicrowd-cli
