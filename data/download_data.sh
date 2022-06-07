@@ -18,9 +18,9 @@ IDS=("1")
 IDS+=("2")
 IDS+=("3")
 
-FILES=("task_1_query-product_ranking")
-FILES+=("task_2_multiclass_product_classification")
-FILES+=("???????????????")
+# FILES=("task_1_query-product_ranking")
+# FILES+=("task_2_multiclass_product_classification")
+# FILES+=("???????????????")
 
 
 
@@ -36,3 +36,5 @@ do
     #cp -r data/processed/public/${FILENAME} ../${FILENAME}
     cd ..
 done 
+
+
