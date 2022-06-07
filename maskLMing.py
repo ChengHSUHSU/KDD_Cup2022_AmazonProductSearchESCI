@@ -11,7 +11,7 @@ from transformers import DataCollatorForLanguageModeling
 
 from data_process import data_process
 from util import build_corpus
-
+from util import TextDataset
 
 
 
@@ -25,10 +25,11 @@ parser.add_argument("--gradient_accumulation_steps", type=int, default=256, help
 parser.add_argument("--lr", type=float, default=5e-5, help="None")
 parser.add_argument("--weight_decay", type=int, default=0, help="None")
 parser.add_argument("--cuda", type=bool, default=torch.cuda.is_available(), help="None")
-parser.add_argument("--batch_size", type=int, default=32, help="None")
+parser.add_argument("--batch_size", type=int, default=8, help="None")
 parser.add_argument("--epoch_num", type=int, default=2, help="None")
 parser.add_argument("--block_size", type=int, default=256, help="None")
 parser.add_argument("--model_save_path", type=str, default='save_model/roberta_base_up', help="None")
+parser.add_argument("--contractive_loss", type=bool, default=False, help="None")
 args = parser.parse_args()
 
 
@@ -47,6 +48,7 @@ train_data_x, train_data_y , val_data_x, query2train_data, query2val_data, query
 # build corpus
 corpus = build_corpus(pd2data=pd2data)
 
+corpus = random.sample(corpus, 100)
 
 # sample val
 val_corpus = random.sample(corpus, int(len(corpus) * args.train_val_rate))
@@ -82,9 +84,8 @@ trainer = Trainer(model=model,
 trainer.train()
 
 # save model
-trainer.save_model(args.model_save_path)
-
-
-
+#trainer.save_model(args.model_save_path)
+trainer.model.save_pretrained(args.model_save_path)
+tokenizer.save_pretrained(args.model_save_path)
 
 
