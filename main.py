@@ -20,7 +20,7 @@ from util import ndcg_score
 # parameter setting
 parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", type=int, default=64, help="None")
-parser.add_argument("--model_save_path", type=str, default='xlm-roberta-large', help="None")
+parser.add_argument("--model_save_path", type=str, default='save_model/xlm-roberta-large', help="None")
 parser.add_argument("--contractive_loss", type=bool, default=False, help="None")
 parser.add_argument("--target_query_locale", type=list, default=['us'], help="us, es, jp")
 parser.add_argument("--train_val_rate", type=float, default=0.8, help="None")
