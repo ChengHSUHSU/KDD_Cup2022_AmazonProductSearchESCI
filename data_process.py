@@ -9,7 +9,7 @@ from sentence_transformers import InputExample, losses
 
 from util import convert_q_pdi_to_q_sent_feature
 
-
+ 
 
 
 def data_process(args=None):
@@ -229,7 +229,7 @@ def build_dataloader(query2train_data=dict,
     # convert query_id, pdi into text
     head_tail_list, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=train_data_x,
                                                                   pd2data=pd2data,
-                                                                  eval_mods=False,
+                                                                  eval_mode=False,
                                                                   args=args)
     label_list = train_data_y
     
