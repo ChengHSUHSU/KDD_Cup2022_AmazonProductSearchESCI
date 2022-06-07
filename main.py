@@ -14,6 +14,10 @@ from util import calculate_eval_score
 from util import ndcg_score
 
 
+'''
+microsoft/infoxlm-base,
+microsoft/infoxlm-large
+'''
 
 
 
