@@ -9,8 +9,8 @@ from transformers import AutoTokenizer, Trainer
 from transformers import DataCollatorForWholeWordMask
 from transformers import DataCollatorForLanguageModeling
 
-from data_process_refactor import data_process
-from util_refactor import build_corpus
+from data_process import data_process
+from util import build_corpus
 
 
 

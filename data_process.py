@@ -7,7 +7,7 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from sentence_transformers import InputExample, losses
 
-from util_refactor import convert_q_pdi_to_q_sent_feature
+from util import convert_q_pdi_to_q_sent_feature
 
 
 

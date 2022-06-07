@@ -19,7 +19,7 @@ from sentence_transformers.evaluation import SentenceEvaluator
 from sentence_transformers import SentenceTransformer
 from sentence_transformers import util
 
-from bert_model_refactor import BertForSequenceClassification, RobertaForSequenceClassification
+from bert_model import BertForSequenceClassification, RobertaForSequenceClassification
 from transformers import BertForSequenceClassification
 #from transformers import RobertaForSequenceClassification
 

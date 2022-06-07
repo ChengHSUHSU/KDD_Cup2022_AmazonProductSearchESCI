@@ -6,12 +6,12 @@ import argparse
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification
 
-from data_process_refactor import data_process, build_dataloader
-from model_refactor import CrossEncoder
-from bert_model_refactor import AUTOTransformer
-from util_refactor import build_query2passage5score
-from util_refactor import calculate_eval_score
-from util_refactor import ndcg_score
+from data_process import data_process, build_dataloader
+from model import CrossEncoder
+from bert_model import AUTOTransformer
+from util import build_query2passage5score
+from util import calculate_eval_score
+from util import ndcg_score
 
 
 
