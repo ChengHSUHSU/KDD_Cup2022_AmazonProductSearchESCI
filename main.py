@@ -52,12 +52,12 @@ train_dataloader = build_dataloader(query2train_data=query2train_data,
 
 # modeling module
 loss_fct = torch.nn.MSELoss()
-# model = CrossEncoder(args=args)
-# if args.contractive_loss is False:
-#     model.fit(train_dataloader=train_dataloader, loss_fct=loss_fct, args=args)
-# else:
-#     model.fit_CL(train_dataloader=train_dataloader, loss_fct=loss_fct, args=args)
-# model.save(args.model_save_path)
+model = CrossEncoder(args=args)
+if args.contractive_loss is False:
+    model.fit(train_dataloader=train_dataloader, loss_fct=loss_fct, args=args)
+else:
+    model.fit_CL(train_dataloader=train_dataloader, loss_fct=loss_fct, args=args)
+model.save(args.model_save_path)
 
 
 # init auto model
