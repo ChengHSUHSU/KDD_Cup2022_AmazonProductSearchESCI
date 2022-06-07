@@ -48,7 +48,6 @@ train_data_x, train_data_y , val_data_x, query2train_data, query2val_data, query
 # build corpus
 corpus = build_corpus(pd2data=pd2data)
 
-corpus = random.sample(corpus, 100)
 
 # sample val
 val_corpus = random.sample(corpus, int(len(corpus) * args.train_val_rate))
