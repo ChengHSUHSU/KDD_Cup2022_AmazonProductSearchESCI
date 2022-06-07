@@ -28,7 +28,7 @@ parser.add_argument("--cuda", type=bool, default=torch.cuda.is_available(), help
 parser.add_argument("--batch_size", type=int, default=32, help="None")
 parser.add_argument("--epoch_num", type=int, default=2, help="None")
 parser.add_argument("--block_size", type=int, default=256, help="None")
-parser.add_argument("--model_save_path", type=str, default='save_model/your_model_name', help="None")
+parser.add_argument("--model_save_path", type=str, default='save_model/roberta_base_up', help="None")
 args = parser.parse_args()
 
 
