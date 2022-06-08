@@ -12,6 +12,7 @@ from bert_model import AUTOTransformer
 from util import build_query2passage5score
 from util import calculate_eval_score
 from util import ndcg_score
+from util import build_submit_result
 
 
 '''
@@ -24,19 +25,20 @@ microsoft/infoxlm-large
 # parameter setting
 parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", type=int, default=64, help="None")
-parser.add_argument("--model_save_path", type=str, default='save_model/xlm-roberta-large', help="None")
+parser.add_argument("--model_save_path", type=str, default='save_model/infoxlm_base_cr', help="None")
 parser.add_argument("--contractive_loss", type=bool, default=False, help="None")
 parser.add_argument("--target_query_locale", type=list, default=['us'], help="us, es, jp")
 parser.add_argument("--train_val_rate", type=float, default=0.8, help="None")
 parser.add_argument("--max_query_length", type=int, default=20, help="None")
 parser.add_argument("--max_title_length", type=int, default=60, help="None")
 parser.add_argument("--max_super_sents_length", type=int, default=None, help="product_brand + product_color_name + product_bullet_point + product_description")
-parser.add_argument("--bert_model_name", type=str, default='xlm-roberta-large', help="it allow [save_model/your_model_name] 'xlm-roberta-large'")
+parser.add_argument("--bert_model_name", type=str, default='microsoft/infoxlm-base', help="it allow [save_model/your_model_name] 'xlm-roberta-large'")
 parser.add_argument("--num_labels", type=int, default=-1, help="None")
 parser.add_argument("--device", type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help="None")
 parser.add_argument("--lr", type=float, default=7e-6, help="None")
 parser.add_argument("--epoch_num", type=int, default=1, help="None")
 parser.add_argument("--warmup_steps", type=int, default=5000, help="None")
+parser.add_argument("--submit_save_path", type=str, default=None, help="None")
 args = parser.parse_args()
 
 
@@ -136,5 +138,15 @@ with torch.no_grad():
     print('ndcg_avg (val) : ', ndcg_avg)
     print('ndcg_std (val)  : ', ndcg_std)
 
+
+# inference (submit test data) 
+if args.submit_save_path is not None:
+    submit_dat = build_submit_result(query2test_data=query2test_data, 
+                                     pd2data=pd2data, 
+                                     auto_model=auto_model, 
+                                     auto_trf=auto_trf, 
+                                     args=args)
+    submit_dat = pd.DataFrame(submit_dat)
+    submit_dat.to_csv('{}.csv'.format(args.submit_save_path), index=False)
 
 

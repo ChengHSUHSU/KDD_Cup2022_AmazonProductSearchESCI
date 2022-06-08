@@ -238,3 +238,40 @@ def build_corpus(pd2data=dict):
             text = product_title + ' .' +product_bullet_point
             corpus.append(text)
     return corpus
+
+
+
+
+
+
+def build_submit_result(query2test_data=dict, pd2data=dict, auto_model=None, auto_trf=None, args=None):
+    # init
+    query_list = list(query2test_data.keys())
+    submit_dat = {'product_id' : [], 'query_id' : []}
+    # main
+    with torch.no_grad():
+        query2passage_pd5score = build_query2passage5score(query_list=query_list, 
+                                                           query2data=query2test_data,
+                                                           pd2data=pd2data,
+                                                           auto_model=auto_model, 
+                                                           auto_trf=auto_trf,
+                                                           args=args)
+    for query in tqdm(query_list):
+        # build passage_pd4score
+        passage_pd5score = query2passage_pd5score[query]
+        passage_pd4score = passage_pd5score['mapping_score'][:]
+        
+        # replace product_new_id with product_id
+        passage_pd4score_update = [[pd2data[pdi]['product_id'], score] for pdi, score in passage_pd4score]
+        
+        # sort by score
+        passage_pd4score_update = sorted(passage_pd4score_update, reverse=True, key=lambda x:x[1])
+
+        # append to submit_dat
+        for product_id, score in passage_pd4score_update:
+            submit_dat['product_id'].append(product_id)
+            submit_dat['query_id'].append(query_id)
+    return submit_dat
+ 
+    
+    
