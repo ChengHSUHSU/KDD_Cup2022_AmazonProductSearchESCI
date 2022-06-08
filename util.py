@@ -257,6 +257,9 @@ def build_submit_result(query2test_data=dict, pd2data=dict, auto_model=None, aut
                                                            auto_trf=auto_trf,
                                                            args=args)
     for query in tqdm(query_list):
+        # get query_id
+        query_id = query2test_data[query]['query_id']
+
         # build passage_pd4score
         passage_pd5score = query2passage_pd5score[query]
         passage_pd4score = passage_pd5score['mapping_score'][:]

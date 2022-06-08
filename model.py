@@ -27,7 +27,7 @@ from transformers import BertForSequenceClassification
 logger = logging.getLogger(__name__)
 
 
-
+ 
 
 
 class CrossEncoder:
@@ -526,6 +526,17 @@ class CrossEncoder:
 
 
 
+
+def LearnFromFailurePrediction():
+    '''
+    additional parameter : k(=repeat_num)
+    0. init cross_encoder module
+    1. for _ in range(k):
+        1.0 build_dataloader (not failure_pred_data)
+        1.1 model_fit
+        1.2 run_eval and collect failure_pred_data
+    '''
+    N = 0
 
 
 

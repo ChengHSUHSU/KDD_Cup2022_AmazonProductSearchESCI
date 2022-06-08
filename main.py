@@ -3,6 +3,7 @@
 import random
 import torch
 import argparse
+import pandas as pd
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification
 
@@ -25,20 +26,20 @@ microsoft/infoxlm-large
 # parameter setting
 parser = argparse.ArgumentParser()
 parser.add_argument("--batch_size", type=int, default=64, help="None")
-parser.add_argument("--model_save_path", type=str, default='save_model/infoxlm_base_cr', help="None")
+parser.add_argument("--model_save_path", type=str, default='save_model/your_model_name', help="None")
 parser.add_argument("--contractive_loss", type=bool, default=False, help="None")
-parser.add_argument("--target_query_locale", type=list, default=['us'], help="us, es, jp")
+parser.add_argument("--target_query_locale", type=list, default=['us', 'es', 'jp'], help="us, es, jp")
 parser.add_argument("--train_val_rate", type=float, default=0.8, help="None")
 parser.add_argument("--max_query_length", type=int, default=20, help="None")
 parser.add_argument("--max_title_length", type=int, default=60, help="None")
 parser.add_argument("--max_super_sents_length", type=int, default=None, help="product_brand + product_color_name + product_bullet_point + product_description")
-parser.add_argument("--bert_model_name", type=str, default='microsoft/infoxlm-base', help="it allow [save_model/your_model_name] 'xlm-roberta-large'")
+parser.add_argument("--bert_model_name", type=str, default='xlm-roberta-large', help="it allow [save_model/your_model_name] 'xlm-roberta-large'")
 parser.add_argument("--num_labels", type=int, default=-1, help="None")
 parser.add_argument("--device", type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help="None")
 parser.add_argument("--lr", type=float, default=7e-6, help="None")
 parser.add_argument("--epoch_num", type=int, default=1, help="None")
 parser.add_argument("--warmup_steps", type=int, default=5000, help="None")
-parser.add_argument("--submit_save_path", type=str, default=None, help="None")
+parser.add_argument("--submit_save_path", type=str, default='save_submit/your_result', help="None")
 args = parser.parse_args()
 
 
@@ -68,7 +69,7 @@ model.save(args.model_save_path)
 
 # init auto model
 auto_model = AutoModelForSequenceClassification.from_pretrained(args.model_save_path).to(args.device)
-auto_trf = AUTOTransformer(bert_model_name=args.bert_model_name, device=args.device)
+auto_trf = AUTOTransformer(bert_model_name=args.model_save_path, device=args.device)
 
 
 
