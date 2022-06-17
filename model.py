@@ -23,6 +23,11 @@ from bert_model import BertForSequenceClassification, RobertaForSequenceClassifi
 from transformers import BertForSequenceClassification
 #from transformers import RobertaForSequenceClassification
 
+from data_process import build_dataloader
+from util import evaluation
+
+from bert_model import AUTOTransformer
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +64,8 @@ class CrossEncoder:
         if args.num_labels == -1 and not classifier_trained:
             num_labels = 1
 
-        self.config.num_labels = num_labels
+        #self.config.num_labels = num_labels
+        self.config.num_labels = 1
 
         # init model
         if 'roberta' in args.bert_model_name:
@@ -85,6 +91,10 @@ class CrossEncoder:
         
         # device
         self._target_device = torch.device(args.device) 
+
+
+        # fgm
+        self.fgm = FGM(model=self.model, args=args)
 
 
     def smart_batching_collate(self, batch):
@@ -273,6 +283,18 @@ class CrossEncoder:
                         logits = logits.view(-1)
                     loss_value = loss_fct(logits, labels)
                     loss_value.backward()
+
+                    # adversarial learning - fgm
+                    if args.al_fgm is True:
+                        self.fgm.attack()
+                        model_predictions_adv = self.model(**features, return_dict=True)
+                        logits_adv = activation_fct(model_predictions_adv.logits)
+                        if self.config.num_labels == 1:
+                            logits_adv = logits_adv.view(-1)
+                        loss_value_adv = loss_fct(logits_adv, labels)
+                        loss_value_adv.backward()
+                        self.fgm.restore()
+
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                     optimizer.step()
 
@@ -291,6 +313,7 @@ class CrossEncoder:
 
             if evaluator is not None:
                 self._eval_during_training(evaluator, args.model_save_path, save_best_model, epoch, -1, callback)
+        self.model.eval()
 
 
     def predict(self, sentences: List[List[str]],
@@ -524,19 +547,115 @@ class CrossEncoder:
             if evaluator is not None:
                 self._eval_during_training(evaluator, args.model_save_path, save_best_model, epoch, -1, callback)
 
+        self.model.eval()
 
 
 
-def LearnFromFailurePrediction():
+def Learning_From_FailurePrediction(train_data_x=list, 
+                                    train_data_y=list, 
+                                    query2train_data=dict, 
+                                    pd2data=dict,
+                                    cross_encoder_model=None,
+                                    loss_fct=None,
+                                    args=None):
     '''
+    dev time : 1.5hr
+    init container : failure_pred_query = []
     additional parameter : k(=repeat_num)
-    0. init cross_encoder module
+    0. init cross_encoder module [DONE|-]
     1. for _ in range(k):
-        1.0 build_dataloader (not failure_pred_data)
-        1.1 model_fit
-        1.2 run_eval and collect failure_pred_data
+        if len(failure_pred_query) != 0:
+            1.0 build_dataloader (not failure_pred_query) 
+        else:
+            1.0 build_dataloader (use failure_pred_query)
+        1.1 model_fit [DONE|-]
+        1.2 run_eval and collect failure_pred_query [DONE| ***query2passage5score[query]['mapping_entity'].append(pdi) ]
     '''
-    N = 0
+    # init container
+    failure_pred_query = []
+    train_query = list(set([element[0] for element in train_data_x]))
+    auto_trf = AUTOTransformer(bert_model_name=args.bert_model_name, device=args.device)
+    print('failure_threshold : ', args.failure_threshold)
+    print('failure_k : ', args.failure_k)
+
+    # main
+    for i in range(args.failure_k):
+        if len(failure_pred_query) != 0:
+            # build train_data_x_update, train_data_y_update by failure_pred_query
+            train_data_x_update = []
+            train_data_y_update = []
+            for query in failure_pred_query:
+                for record in query2train_data[query]['data']:
+                    product_new_id = record['product_new_id']
+                    gain = record['gain']
+                    train_data_x_update.append([query, product_new_id])
+                    train_data_y_update.append(gain)
+            
+            # 1.0 build_dataloader (use failure_pred_query)
+            train_dataloader = build_dataloader(train_data_x=train_data_x_update, 
+                                                train_data_y=train_data_y_update,
+                                                pd2data=pd2data,
+                                                args=args)
+            # empty container
+            failure_pred_query = []
+        else:
+            # 1.0 build_dataloader (not use failure_pred_query)
+            train_dataloader = build_dataloader(train_data_x=train_data_x, 
+                                                train_data_y=train_data_y,
+                                                pd2data=pd2data,
+                                                args=args)
+        
+        # model fit (only 1 epoch)
+        cross_encoder_model.fit(train_dataloader=train_dataloader, loss_fct=loss_fct, args=args)
+        bert_model = cross_encoder_model.model  
+
+        # after update model by Learning_From_FailurePrediction, the evaluation check whether is improved in failure_pred_query
+        if len(failure_pred_query) != 0:
+            __ = evaluation(query_list=failure_pred_query, 
+                            query2data=query2train_data, 
+                            pd2data=pd2data, 
+                            auto_model=bert_model, 
+                            auto_trf=auto_trf, 
+                            args=args,
+                            category='{}-th | FailureQuery'.format(str(i)))            
+
+        # run evluation and collect updated failure_pred_query
+        failure_pred_query = evaluation(query_list=train_query, 
+                                        query2data=query2train_data, 
+                                        pd2data=pd2data, 
+                                        auto_model=bert_model, 
+                                        auto_trf=auto_trf, 
+                                        args=args,
+                                        category='{}-th | AllQuery'.format(str(i)))
+        failure_pred_query = list(set(train_query))
+
+        print('#train_query : ', len(train_query))
+        print('#failure_pred_query : ', len(failure_pred_query))
+        print('Failure_Rate : ', len(failure_pred_query) / len(train_query))
+    return cross_encoder_model
 
 
 
+
+
+class FGM():
+    def __init__(self, model, args):
+        self.args = args
+        self.model = model
+        self.backup = {}
+
+    def attack(self, emb_name='embeddings.word_embeddings'):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and emb_name in name:
+                self.backup[name] = param.data.clone()
+                norm = torch.norm(param.grad)
+                if norm != 0 and not torch.isnan(norm):
+                    r_at = self.args.al_fgm_epsilon * param.grad / norm
+                    param.data.add_(r_at)
+
+    def restore(self, emb_name='embeddings.word_embeddings'):
+        for name, param in self.model.named_parameters():
+            if param.requires_grad and emb_name in name: 
+                assert name in self.backup
+                param.data = self.backup[name]
+        self.backup = {}

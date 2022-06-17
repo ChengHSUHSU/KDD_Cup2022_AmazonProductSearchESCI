@@ -10,6 +10,7 @@ from transformers.tokenization_utils import PreTrainedTokenizer
 
 
 
+
  
 
 def build_query2passage5score(query_list=list, 
@@ -278,3 +279,45 @@ def build_submit_result(query2test_data=dict, pd2data=dict, auto_model=None, aut
  
     
     
+
+
+
+def evaluation(query_list=list, query2data=dict, pd2data=dict, auto_model=None, auto_trf=None, args=None, category='Train'):
+    # init container
+    ndcg_avg_score = []
+    failure_pred_query = []
+
+    # main
+    with torch.no_grad():
+        query2passage_pd5score = build_query2passage5score(query_list=query_list, 
+                                                           query2data=query2data,
+                                                           pd2data=pd2data,
+                                                           auto_model=auto_model, 
+                                                           auto_trf=auto_trf,
+                                                           args=args)
+
+        for query in tqdm(query_list):
+            passage_pd5score = query2passage_pd5score[query]
+            passage_pd4score = passage_pd5score['mapping_score'][:]
+            y_true, y_score = calculate_eval_score(passage_pd4score=passage_pd4score, 
+                                                   query_data=query2data[query])
+
+            ndcg_score_value = ndcg_score(y_true=y_true, 
+                                          y_score=y_score, 
+                                          k=len(y_score), 
+                                          gains="exponential")
+            
+            ndcg_avg_score.append(ndcg_score_value)
+
+            if args.failure_threshold > ndcg_score_value:
+                failure_pred_query.append(query)
+        
+        # calculate evaluation metric
+        count = len(ndcg_avg_score)
+        ndcg_avg = sum(ndcg_avg_score) / len(ndcg_avg_score)
+        ndcg_std = ((sum([(sc - ndcg_avg) ** 2 for sc in ndcg_avg_score])) ** (1/2)) / count
+        print('count ({}) : '.format(category), count)
+        print('ndcg_avg ({}) : '.format(category), ndcg_avg)
+        print('ndcg_std ({})  : '.format(category), ndcg_std)
+    
+    return failure_pred_query

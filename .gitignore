@@ -3,3 +3,4 @@
 *.pt
 *.csv
 *.log
+save_model/
