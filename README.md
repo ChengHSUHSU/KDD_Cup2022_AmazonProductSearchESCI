@@ -50,6 +50,7 @@ The following table shows the baseline results obtained through the different pu
 | Model |  Metric  | Score |
 |:----:|:--------:|:-----:|
 |   Roberta-XLM  | nDCG     | 0.874 |
+|   Roberta-XLM-TwoStage  | nDCG     | 0.884 |
 |    Official Baseline | nDCG | 0.850 |
 |    - | - | - |
 
