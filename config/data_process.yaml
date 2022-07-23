@@ -1,0 +1,21 @@
+
+# organic data path
+task1_path : 'task_1_query-product_ranking/'
+task2_path : 'task_2_multiclass_product_classification/'
+
+
+# determine locale
+target_query_locale : ['us'] # us, es, jp
+
+
+
+# determine validation source
+val_data_source : 'task2' # task1, task2
+train_val_rate : 0.8
+
+
+downstream_load_pkl : False
+
+
+
+
