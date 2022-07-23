@@ -1,40 +1,48 @@
 
 
-
+import re
 import random
+import pickle
 import pandas as pd
 from tqdm import tqdm
+
+from utils import convert_q_pdi_to_q_sent_feature
+from utils import convert_pdi_pdi_to_sent_feature
+
 from torch.utils.data import DataLoader
-from sentence_transformers import InputExample, losses
-
-from util import convert_q_pdi_to_q_sent_feature
-
- 
+from sentence_transformers import InputExample
 
 
-def data_process(args=None):
-    # load data (task1)
+
+
+def data_info_process(args=None):
+    # load data from pickle
+    downstream_load_pkl = args.model_cfg['downstream_load_pkl']
+    if downstream_load_pkl is True:
+        try:
+            path = args.model_cfg['bert_model_name'] + '_data.pkl'
+            with open(path, "rb") as f:
+                data = pickle.load(f)
+            data_info = data['data_info']
+            return data_info
+        except:
+            print('[Warning] : Cannot load train-data.pkl..., please check config again')
+
+    # load data (task1, task2)
     print('load data ...')
-    path = 'task_1_query-product_ranking/'
-    train_path = path + 'train-v0.2.csv'
-    test_path = path + 'test_public-v0.2.csv'
-    product_path = path + 'product_catalogue-v0.2.csv'
-    submit_path = path + 'sample_submission-v0.2.csv'
-    task2_path = 'task_2_multiclass_product_classification/'
-
+    task1_path = args.data_process_cfg['task1_path']
+    train_path = task1_path + 'train-v0.2.csv'
+    test_path = task1_path + 'test_public-v0.3.csv'
+    product_path = task1_path + 'product_catalogue-v0.2.csv'
+    submit_path = task1_path + 'sample_submission-v0.2.csv'
     train_dat = pd.read_csv(train_path)
     test_dat = pd.read_csv(test_path)
     product_dat = pd.read_csv(product_path)
     submit_dat = pd.read_csv(submit_path)
-    
-    # load data (task2)
-    task2_path = 'task_2_multiclass_product_classification/'
+    task2_path = args.data_process_cfg['task2_path']
     task2_train_path = task2_path + 'train-v0.2.csv'
     task2_product_path = task2_path + 'product_catalogue-v0.2.csv'
-
     task2_train_dat = pd.read_csv(task2_train_path)
-    task2_product_dat = pd.read_csv(task2_product_path)
-
 
     # imputation
     print('imputation ...')
@@ -42,91 +50,89 @@ def data_process(args=None):
     test_dat = test_dat.fillna('Empty')
     product_dat = product_dat.fillna('Empty')
     task2_train_dat = task2_train_dat.fillna('Empty')
-    task2_product_dat = task2_product_dat.fillna('Empty')
-
 
     # add product_new_id
     print('add product_new_id ...')
     product_dat = build_product_idx(product_dat, locale_name='product_locale')
     train_dat = build_product_idx(train_dat, locale_name='query_locale')
     test_dat = build_product_idx(test_dat, locale_name='query_locale')
-    task2_product_dat = build_product_idx(task2_product_dat, locale_name='product_locale')
     task2_train_dat = build_product_idx(task2_train_dat, locale_name='query_locale')
-
-
-    # choose given locale
-    print('choose given locale ...')
-    dat_lc = train_dat[train_dat['query_locale'].isin(args.target_query_locale)]
-    test_dat_lc = test_dat[test_dat['query_locale'].isin(args.target_query_locale)]
-    task2_train_dat_lc = task2_train_dat[task2_train_dat['query_locale'].isin(args.target_query_locale)]
-
-
-    # split train, val data by random_select (task1)
-    print('split train, val data by random_select ...')
-    query_list = list(set(dat_lc['query']))
-    train_N = int(args.train_val_rate * len(query_list))
-    given_query_list = random.sample(query_list, len(query_list))
-    train_query_list = given_query_list[:train_N]
-    val_query_list = given_query_list[train_N:]
-    train_dat_lc = dat_lc[dat_lc['query'].isin(train_query_list)]
-    val_dat_lc = dat_lc[dat_lc['query'].isin(val_query_list)]
-
-
-    # build task2 complement query (task2)
-    task2_query_set = set(task2_train_dat_lc['query'])
-    task2_complement_query_list = list(task2_query_set - set(query_list))
-    N = int(len(task2_complement_query_list) * args.task2_used_rate)
-    task2_complement_query_list = random.sample(task2_complement_query_list, N)
-    task2_complement_dat_lc = task2_train_dat_lc[task2_train_dat_lc['query'].isin(task2_complement_query_list)]
-
-
-    # build given_product_dat (task1)
-    train_pd_set = set(train_dat_lc['product_new_id'])
-    val_pd_set = set(val_dat_lc['product_new_id'])
-    test_pd_set = set(test_dat_lc['product_new_id'])
-    all_pd_list = list(train_pd_set | val_pd_set | test_pd_set)
-    given_product_dat = product_dat[product_dat['product_new_id'].isin(all_pd_list)]
-
-
-    # build given_product_dat (task2)
-    task2_pd_list = list(set(task2_complement_dat_lc['product_new_id']))
-    given_task2_product_dat = task2_product_dat[task2_product_dat['product_new_id'].isin(task2_pd_list)]
-
 
     # build pd2data
     print('build pd2data ...')
-    pd2data = build_pd2data(given_product_dat=given_product_dat)
-    task2_pd2data = build_pd2data(given_product_dat=given_task2_product_dat)
-    pd2data = left_join_map_merge(left_map=pd2data, right_map=task2_pd2data)
+    pd2data = build_pd2data(given_product_dat=product_dat)
 
+    # choose given locale
+    print('choose given locale ...')
+    target_query_locale = args.data_process_cfg['target_query_locale']
+    dat_lc = train_dat[train_dat['query_locale'].isin(target_query_locale)]
+    test_dat_lc = test_dat[test_dat['query_locale'].isin(target_query_locale)]
+    task2_train_dat_lc = task2_train_dat[task2_train_dat['query_locale'].isin(target_query_locale)]
+
+    # split train, val data by random_select (task1)
+    print('split train, val data by random_select ...')
+    train_dat_lc, val_dat_lc = split_train_val_data(dat_lc=dat_lc, 
+                                                    task2_dat_lc=task2_train_dat_lc, 
+                                                    pd2data=pd2data,
+                                                    args=args)
+
+    # build task2_complement_dat_lc
+    task2_complement_dat_lc = build_task2_complement_dat(train_dat_lc=train_dat_lc, 
+                                                         val_dat_lc=val_dat_lc, 
+                                                         task2_train_dat_lc=task2_train_dat_lc,
+                                                         pd2data=pd2data,
+                                                         args=args)
 
     # build query2data
     print('build query2data ...')
-    query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=args.target_query_locale)
-    query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=args.target_query_locale)
-    query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=args.target_query_locale)
-    query2complement_data = build_query2data(target_dat=task2_complement_dat_lc, target_query_locale=args.target_query_locale)
-    if args.use_task2_data is True: 
-        query2train_data = left_join_map_merge(left_map=query2train_data, right_map=query2complement_data)
+    target_query_locale = args.data_process_cfg['target_query_locale']
+    query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=target_query_locale)
+    query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=target_query_locale)
+    query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=target_query_locale)
+    query2complement_data = build_query2data(target_dat=task2_complement_dat_lc, target_query_locale=target_query_locale)
 
-
-    # build train_data_x, train_data_y
+    # build train_data_x, train_data_y 
     print('build train_data_x, train_data_y ...')
     train_data_x, train_data_y = [], []
     train_data_x, train_data_y = update_train_data_x_y(query2data=query2train_data, 
                                                        train_data_x=train_data_x, 
                                                        train_data_y=train_data_y, 
-                                                       args=args)
+                                                       pd2data=pd2data,
+                                                       args=args,
+                                                       train_mode='regression')
+    # build train_data_x, train_data_y 
+    print('build train_data_x, train_data_y ...')
+    val_data_x, val_data_y = [], []
+    val_data_x, val_data_y = update_train_data_x_y(query2data=query2val_data, 
+                                                   train_data_x=val_data_x, 
+                                                   train_data_y=val_data_y, 
+                                                   pd2data=pd2data,
+                                                   args=args,
+                                                   train_mode='regression')
+    # build val_data_test
+    print('build val_data_test ...')
+    val_data_test = list(query2val_data.keys())
 
+    # output
+    data_info = {
+                 'train_data_x' : train_data_x,
+                 'train_data_y' : train_data_y,
+                 'query2train_data' : query2train_data,
+                 'query2val_data' : query2val_data,
+                 'query2test_data' : query2test_data,
+                 'pd2data' : pd2data
+                }
 
-    # build val_data_x
-    print('build val_data_x ...')
-    val_data_x = []
-    for query in list(query2val_data.keys()):
-        val_data_x.append(query)
+    # save data to pickle
+    upstream = args.model_cfg['upstream']
+    model_save_path = args.model_cfg['model_save_path']
+    if upstream is True:
+        path = model_save_path + '_data.pkl'
+        data = {'data_info' : data_info}
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
 
-    return train_data_x, train_data_y , val_data_x, query2train_data, query2val_data, query2test_data, pd2data
-
+    return data_info
 
 
 
@@ -144,18 +150,127 @@ def build_product_idx(dat, locale_name='product_locale'):
 
 
 
+def build_pd2data(given_product_dat=None):
+    pd2data = dict()
+    for records in given_product_dat.to_dict('records'):
+        product_id = records['product_id']
+        product_new_id = records['product_new_id']
+        product_locale = records['product_locale']
+        product_title = records['product_title']
+        product_bullet_point = records['product_bullet_point']
+        product_brand = records['product_brand']
+        product_color_name = records['product_color_name']
+        product_description = records['product_description']
+        product_description = cleanhtml(raw_html=product_description)
+        origin_super_sents = product_bullet_point.split('\n')
+        super_sents = product_brand + '. ' \
+                    + product_color_name + '. ' \
+                    + product_bullet_point + '. ' \
+                    + product_description + '.'
+        if product_new_id not in pd2data:
+            pd2data[product_new_id] = {
+                                       'product_title' : product_title,
+                                       'product_bullet_point' : product_bullet_point,
+                                       'super_sents' : super_sents,
+                                       'origin_super_sents' : origin_super_sents,
+                                       'product_brand' : product_brand,
+                                       'product_color_name' : product_color_name,
+                                       'product_id' : product_id,
+                                       'product_locale' : product_locale,
+                                       'product_description' : product_description
+                                      }
+    return pd2data
 
-def build_query2data(target_dat, target_query_locale):
+
+
+
+def cleanhtml(raw_html):
+    CLEANR = re.compile('<.*?>') 
+    cleantext = re.sub(CLEANR, '', raw_html)
+    return cleantext
+
+
+
+
+def split_train_val_data(dat_lc=None, task2_dat_lc=None, pd2data=dict, args=None):
+    # init parameter
+    train_val_rate = args.data_process_cfg['train_val_rate']
+    val_data_source = args.data_process_cfg['val_data_source']
+    # main
+    query_list = list(set(dat_lc['query']))
+    if val_data_source == 'task1':
+        train_N = int(args.train_val_rate * len(query_list))
+        given_query_list = random.sample(query_list, len(query_list))
+        train_query_list = given_query_list[:train_N]
+        val_query_list = given_query_list[train_N:]
+    elif val_data_source == 'task2':
+        val_N = int((1-train_val_rate) * len(query_list))
+        task2_query = take_legal_query_from_task2(dat_lc=dat_lc, 
+                                                  task2_dat_lc=task2_dat_lc, 
+                                                  pd2data=pd2data,
+                                                  pdi_occupy_rate=1.0,
+                                                  args=args)
+        task2_query_list = list(set(task2_dat_lc['query']) & set(task2_query))
+        given_query_list = random.sample(task2_query_list, len(task2_query_list))
+        train_query_list = query_list
+        val_query_list = given_query_list[:val_N]
+    # take train_dat_lc, val_dat_lc base on query, products
+    train_dat_lc = dat_lc[dat_lc['query'].isin(train_query_list)]
+    if val_data_source == 'task1': 
+        val_dat_lc = dat_lc[dat_lc['query'].isin(val_query_list)]
+    elif val_data_source == 'task2': 
+        task1_pd_set = set(pd2data.keys())
+        val_dat_lc = task2_dat_lc[task2_dat_lc['query'].isin(val_query_list)]
+        val_dat_lc = val_dat_lc[val_dat_lc['product_new_id'].isin(task1_pd_set)]
+    return train_dat_lc, val_dat_lc
+
+
+
+
+def take_legal_query_from_task2(dat_lc=None, task2_dat_lc=None, pd2data=dict, pdi_occupy_rate=float, args=None):
+    # init parameter
+    target_query_locale = args.data_process_cfg['target_query_locale']
+
+    # init task2_query
+    task2_query = [] 
+    
+    # build task1_query_set
+    task1_query_set = set(dat_lc['query'])
+    
+    # build task1_pd_set
+    task1_pd_set = set(pd2data.keys())
+    
+    # build query2task2_data
+    query2task2_data = build_query2data(target_dat=task2_dat_lc, target_query_locale=target_query_locale)
+
+    # build task2_query
+    for query in list(query2task2_data.keys()):
+        task2_pd_set = set(query2task2_data[query]['all'])
+        rate = len(task2_pd_set & task1_pd_set) / len(task2_pd_set)
+        if rate >= pdi_occupy_rate and query not in task1_query_set:
+            task2_query.append(query)
+    return task2_query
+
+
+
+
+def build_query2data(target_dat=None, target_query_locale=list):
     esci_label2gain = {
                        'exact' : 1,
                        'substitute' : 0.1,
                        'complement' : 0.01,
                        'irrelevant' : 0.0,
-                      }
+                       }
+    esci_label2class = {
+                       'exact' : 0,
+                       'substitute' : 1,
+                       'complement' : 2,
+                       'irrelevant' : 3,
+                       }
+
     query2data = dict()
     for records in target_dat.to_dict('records'):
         query = records['query']
-        #query_id = records['query_id']
         product_new_id = records['product_new_id']
         query_locale = records['query_locale']
         product_id = records['product_id']
@@ -171,19 +286,27 @@ def build_query2data(target_dat, target_query_locale):
                                  'all' : [],
                                  'locale' : query_locale,
                                  'query_id' : query_id,
-                                 'data' : []
-                                 }
+                                 'data' : [],
+                                 'data_class' : []
+                                 } 
         if 'esci_label' in records:
             if records['esci_label'] == 'exact':
                 query2data[query]['pos'].append(product_new_id)
             else:
                 query2data[query]['neg'].append(product_new_id)
             gain = esci_label2gain[records['esci_label'] ]
+            class_ = esci_label2class[records['esci_label']]
         else:
             gain = None
+            class_ = None
         query2data[query]['all'].append(product_new_id)
         query2data[query]['data'].append({
                                           'gain' : gain, 
+                                           'product_new_id' : product_new_id, 
+                                           'product_id':product_id
+                                         })
+        query2data[query]['data_class'].append({
+                                          'gain' : class_, 
                                            'product_new_id' : product_new_id, 
                                            'product_id':product_id
                                          })
@@ -191,121 +314,75 @@ def build_query2data(target_dat, target_query_locale):
 
 
 
- 
- 
-def build_dataloader(train_data_x=None, 
-                     train_data_y=None,
-                     pd2data=dict,
-                     args=None):
 
-    # convert query_id, pdi into text
-    head_tail_list, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=train_data_x,
-                                                                  pd2data=pd2data,
-                                                                  eval_mode=False,
-                                                                  args=args)
-    label_list = train_data_y
+def build_task2_complement_dat(train_dat_lc=None, val_dat_lc=None, task2_train_dat_lc=None, pd2data=dict, args=None):
+    # build task2_query
+    task2_query = take_legal_query_from_task2(dat_lc=train_dat_lc, 
+                                              task2_dat_lc=task2_train_dat_lc, 
+                                              pd2data=pd2data,
+                                              pdi_occupy_rate=0.6,
+                                              args=args)
     
-    # convert into train_dataloader
-    train_samples = []
-    if args.contractive_loss is False:
-        for i, (query, passage) in enumerate(head_tail_list):
-            gain_y = label_list[i]
-            train_samples.append(InputExample(texts=[query, passage], label=float(gain_y)))
-    else:
-        for i, (query, passage, pos, neg) in enumerate(head_tail_list):
-            gain_y = label_list[i]
-            train_samples.append(InputExample(texts=[query, passage, pos, neg], label=float(gain_y)))
-    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=args.batch_size, drop_last=True)
-    return train_dataloader
+    # remove val_query by query_id
+    val_query_set = set(val_dat_lc['query'])
+    task2_query_wo_val = set([query for query in task2_query if query not in val_query_set])
+    
+    # build task2_complement_dat
+    task2_complement_dat = task2_train_dat_lc[task2_train_dat_lc['query'].isin(task2_query_wo_val)]
+
+    # remove illigual product_id
+    old_pdi_set = set(train_dat_lc['product_new_id'])
+    task1_pdi_set = set(pd2data.keys())
+    update_task1_pdi_set = task1_pdi_set
+    task2_complement_dat = task2_complement_dat[task2_complement_dat['product_new_id'].isin(task1_pdi_set)]
+    return task2_complement_dat
 
 
 
 
-
-def data_process_denoise(train_data_x=list, train_data_y=list, query2train_data=dict, args=None):
+def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list, pd2data=dict, train_mode=str, args=None):
     # init
-    train_data_x_update, train_data_y_update = list(), list()
-    query_list = list(query2train_data.keys())
-    train_data_x
-    index_list = [i for i in range(len(train_data_x))]
-
-
+    complement_num = 0
+    if train_mode == 'regression':
+        data_mode = 'data'
+    elif train_mode == 'classifier':
+        data_mode = 'data' 
     # main
-    if args.denoise_mode is None:
-        train_data_x_update = train_data_x
-        train_data_y_update = train_data_y
-    elif args.denoise_mode == 'random-query':
-        denoise_query = random.sample(query_list, int(len(query_list) * args.denoise_rate))
-        denoise_query_set = set(denoise_query)
-        for i, (query, pdi) in enumerate(train_data_x):
-            if query not in denoise_query_set:
-                train_data_x_update.append([query, pdi])
-                train_data_y_update.append(train_data_y[i])
-    elif args.denoise_mode == 'random-records':
-        denoise_index = random.sample(index_list, int(len(index_list) * args.denoise_rate))
-        denoise_index_set = set(denoise_index)
-        for i, (query, pdi) in enumerate(train_data_x):
-            if i not in denoise_index_set:
-                train_data_x_update.append([query, pdi])
-                train_data_y_update.append(train_data_y[i])
-    elif args.denoise_mode == 'undersampling':
-        # gain2data
-        # determine data_len for each gain
-        # randm sample
-        N = 0
-
-    return train_data_x_update, train_data_y_update
-
-
-
-
-
-def build_pd2data(given_product_dat=None):
-    # build pd2data
-    pd2data = dict()
-    for records in given_product_dat.to_dict('records'):
-        product_id = records['product_id']
-        product_new_id = records['product_new_id']
-        product_locale = records['product_locale']
-        product_title = records['product_title']
-        product_bullet_point = records['product_bullet_point']
-        product_brand = records['product_brand']
-        product_color_name = records['product_color_name']
-        product_description = records['product_description']
-        origin_super_sents = product_bullet_point.split('\n')
-        super_sents = product_brand + '. ' + product_color_name + '. ' + product_bullet_point + '. ' + product_description + '.'
-        if product_new_id not in pd2data:
-            pd2data[product_new_id] = {
-                                    'product_title' : product_title,
-                                    'product_bullet_point' : product_bullet_point,
-                                    'super_sents' : super_sents,
-                                    'origin_super_sents' : origin_super_sents,
-                                    'product_brand' : product_brand,
-                                    'product_color_name' : product_color_name,
-                                    'product_id' : product_id
-                                    }
-    return pd2data
-
-
-
-
-
-def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list, args=None):
-    for query in list(query2data.keys()):
+    for query in tqdm(list(query2data.keys())):
         pos_set = query2data[query]['pos']
         neg_set = query2data[query]['neg']
-        data_list = query2data[query]['data']
+        data_list = query2data[query][data_mode]
 
-        all_pos_set = set([data['product_new_id'] for data in data_list if data['gain'] != 0.0])
-        all_neg_set = set(query2data[query]['all']) - all_pos_set
-        pos_sample = set(random.sample(list(all_pos_set ), min(len(all_pos_set), len(all_neg_set))))
+        # init container
+        lower_bound = None
+        upper_bound = None
+        pos_pdi_gain_list = [[data['product_new_id'], data['gain']] for data in data_list if data['gain'] == 1.0]
+        neg_pdi_gain_list = [[data['product_new_id'], data['gain']] for data in data_list if data['gain'] != 1.0]
+
+        # calculate positive_ratio
+        pos_num = len(pos_pdi_gain_list)
+        neg_num = len(neg_pdi_gain_list)
+        positive_ratio = pos_num / (pos_num + neg_num)
+        
+        # determine what number of complement; N
+        pos_complement_num, neg_complement_num = 0, 0
+        if lower_bound is not None and positive_ratio <= lower_bound:
+            pos_complement_num = neg_num - pos_num
+        if upper_bound is not None and positive_ratio >= upper_bound:
+            neg_complement_num = pos_num - neg_num
+
+        pos_complement_data, neg_complement_data = [], []
+        
+        # update complement_num
+        complement_num += len(pos_complement_data + neg_complement_data)
 
         exact_data = []
         substitute_data = []
         complement_data = []
-        irrelevant_data = []
+        irrelevant_data = [] 
         train_data_x_batch = []
         train_data_y_batch = []
+        # originnal data (complement_data have no any association with pos/neg complement_data)
         for data in data_list:
             product_new_id = data['product_new_id']
             gain = data['gain']
@@ -319,6 +396,12 @@ def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list,
                 complement_data.append(product_new_id)
             else:
                 irrelevant_data.append(product_new_id)
+        # pseudo data
+        for product_new_id, gain in pos_complement_data + neg_complement_data:
+            train_data_x_batch.append([query, product_new_id])
+            train_data_y_batch.append(gain)
+   
+
         if len(train_data_x_batch) > 0:
             if len(complement_data + irrelevant_data) > 0:
                 if len(exact_data) + len(substitute_data) > 0:
@@ -338,13 +421,6 @@ def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list,
                 else:
                     neg_data = substitute_data + exact_data
                     pos_data = substitute_data + exact_data
-            if args.contractive_loss is True:
-                index = 0
-                while index != len(train_data_x_batch):
-                    neg_pdi = neg_data[index % len(neg_data)]
-                    pos_pdi = random.sample(pos_data, 1)[0]
-                    train_data_x_batch[index] = train_data_x_batch[index] + [pos_pdi, neg_pdi]
-                    index +=1
             train_data_x += train_data_x_batch
             train_data_y += train_data_y_batch
     return train_data_x, train_data_y
@@ -352,13 +428,44 @@ def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list,
 
 
 
+def build_dataloader(train_data_x=None, 
+                     train_data_y=None,
+                     pd2data=dict,
+                     args=None,
+                     drop_last=True):
+    # init parameter
+    batch_size = args.model_cfg['batch_size']
+    use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
+    
 
-def left_join_map_merge(left_map=dict, right_map=dict):
-    right_key_list = list(right_map.keys())
-    for right_key in right_key_list:
-        if right_key not in left_map:
-            left_map[right_key] = right_map[right_key]
-    return left_map
+    if use_margin_rank_loss is False:
+        head_tail_list, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=train_data_x,
+                                                                      pd2data=pd2data,
+                                                                      eval_mode=False,
+                                                                      args=args)
+    else:
+        head_tail_list, sent_length = convert_pdi_pdi_to_sent_feature(q_pdi_pdi_list=train_data_x, 
+                                                                      pd2data=pd2data, 
+                                                                      args=args)
+    if train_data_y is None:
+        label_list = [0.0 for _ in range(len(train_data_x))]
+    else:
+        label_list = train_data_y
+    
+    # convert into train_dataloader 
+    train_samples = []
+    if use_margin_rank_loss is False:
+        for i, (query, passage) in enumerate(head_tail_list):
+            gain_y = label_list[i]
+            train_samples.append(InputExample(texts=[query, passage], label=float(gain_y)))
+    else:
+        for i, (query, left_passage, right_passage) in enumerate(head_tail_list):
+            gain_y = label_list[i]
+            train_samples.append(InputExample(texts=[query, left_passage, right_passage], label=float(gain_y)))
+    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=batch_size, drop_last=drop_last)
+    return train_dataloader
+
+
 
 
 
