@@ -1,4 +1,4 @@
-# 66666
+# KDD CUP 2022 AmazonProductSearch ESCI
 This is an open source implementation of the baselines presented in the [Amazon Product Search KDD CUP 2022](https://www.aicrowd.com/challenges/esci-challenge-for-improving-product-search).
 
 
