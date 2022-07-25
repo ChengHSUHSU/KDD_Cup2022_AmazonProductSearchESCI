@@ -89,9 +89,9 @@ def data_info_process(args=None):
         # build query2data
         print('build query2data ...')
         target_query_locale = args.data_process_cfg['target_query_locale']
-        query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=target_query_locale)
-        query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=target_query_locale)
-        query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=target_query_locale)
+        query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=target_query_locale, args=args)
+        query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=target_query_locale, args=args)
+        query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=target_query_locale, args=args)
         #query2complement_data = build_query2data(target_dat=task2_complement_dat_lc, target_query_locale=target_query_locale)
 
         # build train_data_x, train_data_y 
@@ -281,7 +281,7 @@ def take_legal_query_from_task2(dat_lc=None, task2_dat_lc=None, pd2data=dict, pd
     task1_pd_set = set(pd2data.keys())
     
     # build query2task2_data
-    query2task2_data = build_query2data(target_dat=task2_dat_lc, target_query_locale=target_query_locale)
+    query2task2_data = build_query2data(target_dat=task2_dat_lc, target_query_locale=target_query_locale, args=args)
 
     # build task2_query
     for query in list(query2task2_data.keys()):
@@ -294,7 +294,9 @@ def take_legal_query_from_task2(dat_lc=None, task2_dat_lc=None, pd2data=dict, pd
 
 
 
-def build_query2data(target_dat=None, target_query_locale=list):
+def build_query2data(target_dat=None, target_query_locale=list, args=None):
+    # init parameter
+    updated_classifier_label = args.model_cfg['updated_classifier_label']
     esci_label2gain = {
                        'exact' : 1,
                        'substitute' : 0.1,
@@ -302,10 +304,10 @@ def build_query2data(target_dat=None, target_query_locale=list):
                        'irrelevant' : 0.0,
                        }
     esci_label2class = {
-                       'exact' : 0,
-                       'substitute' : 1,
-                       'complement' : 2,
-                       'irrelevant' : 3,
+                       'exact' : updated_classifier_label['E'],
+                       'substitute' : updated_classifier_label['S'],
+                       'complement' : updated_classifier_label['C'],
+                       'irrelevant' : updated_classifier_label['I'],
                        }
 
     query2data = dict()
@@ -463,6 +465,16 @@ def update_train_data_x_y(query2data=dict, train_data_x=list, train_data_y=list,
                     pos_data = substitute_data + exact_data
             train_data_x += train_data_x_batch
             train_data_y += train_data_y_batch
+    # convert gain to label_name (hard code)
+    for i in range(len(train_data_y)):
+        if train_data_y[i] == 1.0:
+            train_data_y[i] = 'E'
+        elif train_data_y[i] == 0.1:
+            train_data_y[i] = 'S'
+        elif train_data_y[i] == 0.01:
+            train_data_y[i] = 'C'
+        else:
+            train_data_y[i] = 'I'
     return train_data_x, train_data_y
 
 
@@ -497,11 +509,11 @@ def build_dataloader(train_data_x=None,
     if use_margin_rank_loss is False:
         for i, (query, passage) in enumerate(head_tail_list):
             gain_y = label_list[i]
-            train_samples.append(InputExample(texts=[query, passage], label=float(gain_y)))
+            train_samples.append(InputExample(texts=[query, passage], label=gain_y))
     else:
         for i, (query, left_passage, right_passage) in enumerate(head_tail_list):
             gain_y = label_list[i]
-            train_samples.append(InputExample(texts=[query, left_passage, right_passage], label=float(gain_y)))
+            train_samples.append(InputExample(texts=[query, left_passage, right_passage], label=gain_y))
     train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=batch_size, drop_last=drop_last)
     return train_dataloader
 
@@ -511,11 +523,11 @@ def build_dataloader(train_data_x=None,
 
 def additional_data_process(data_info=dict, args=None):
     '''
-    1. two_stage_replace_label
+    1. two_stage_replace_label (X)
     2. margin rank data
     '''
     # init parameter
-    updated_regression_label = args.model_cfg['updated_regression_label']
+    #updated_regression_label = args.model_cfg['updated_regression_label']
     use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
     
     # train data
@@ -524,31 +536,31 @@ def additional_data_process(data_info=dict, args=None):
     train_data = [train_data_x, train_data_y]
     
     # replace label for two_stage
-    if updated_regression_label is not None:
-        # updayed label
-        E_label = updated_regression_label[0]
-        S_label = updated_regression_label[1]
-        C_label = updated_regression_label[2]
-        I_label = updated_regression_label[3]
-        # update
-        train_data_x_update = []
-        train_data_y_update = []
-        for i, gain in enumerate(train_data_y):
-            x = train_data_x[i]
-            if gain == 1:
-                train_data_x_update.append(x)
-                train_data_y_update.append(E_label)
-            elif gain == 0.1:
-                train_data_x_update.append(x)
-                train_data_y_update.append(S_label)
-            elif gain == 0.01:
-                train_data_x_update.append(x)
-                train_data_y_update.append(C_label)
-            elif gain == 0.0:
-                train_data_x_update.append(x)
-                train_data_y_update.append(I_label)
-        train_data_x = train_data_x_update
-        train_data_y = train_data_y_update
+    # if updated_regression_label is not None:
+    #     # updayed label
+    #     E_label = updated_regression_label[0]
+    #     S_label = updated_regression_label[1]
+    #     C_label = updated_regression_label[2]
+    #     I_label = updated_regression_label[3]
+    #     # update
+    #     train_data_x_update = []
+    #     train_data_y_update = []
+    #     for i, gain in enumerate(train_data_y):
+    #         x = train_data_x[i]
+    #         if gain == 1:
+    #             train_data_x_update.append(x)
+    #             train_data_y_update.append(E_label)
+    #         elif gain == 0.1:
+    #             train_data_x_update.append(x)
+    #             train_data_y_update.append(S_label)
+    #         elif gain == 0.01:
+    #             train_data_x_update.append(x)
+    #             train_data_y_update.append(C_label)
+    #         elif gain == 0.0:
+    #             train_data_x_update.append(x)
+    #             train_data_y_update.append(I_label)
+    #     train_data_x = train_data_x_update
+    #     train_data_y = train_data_y_update
 
     # margin rank data
     if use_margin_rank_loss is True:
