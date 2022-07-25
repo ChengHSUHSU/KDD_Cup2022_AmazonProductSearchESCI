@@ -4,13 +4,18 @@
 bert_model_name: 'roberta-base'
 model_save_path : 'save_model/test'
 upstream : True
-updated_regression_label : [1, 0.1, 0, 0] # E, S, C, I; if None, then no update
+updated_regression_label : {'E' : 1.0, 'S' : 0.1, 'C' : 0, 'I' : 0}
+updated_classifier_label : {'E' : 0, 'S' : 1, 'C' : 2, 'I' : 2}
+classifier_weights : [0.4115, 1.3260, 3.3296]
+
+
+
 downstream_load_pkl : True
 data_info_path : 'save_data/data_info_test'
 target_fold : 0 
 
 use_margin_rank_loss : False
-use_classfier : False
+use_classfier : True
 
 max_query_length : 20
 max_title_length : 60
@@ -22,7 +27,7 @@ additional_pdfeature_locale : ['us', 'es']
 batch_size : 32
 
 
-num_labels : 1
+num_labels : 3
 
 device : 'cuda'
 
