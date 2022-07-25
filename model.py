@@ -32,7 +32,9 @@ class CrossEncoder:
         use_classfier = args.model_cfg['use_classfier']
         use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
         margin = args.model_cfg['margin']
-        
+        classifier_weights = args.model_cfg['classifier_weights']
+        self.updated_regression_label = args.model_cfg['updated_regression_label']
+        self.updated_classifier_label = args.model_cfg['updated_classifier_label']
 
         # device
         self._target_device = torch.device(device) 
@@ -58,12 +60,11 @@ class CrossEncoder:
         try:
             self.config.sbert_ce_default_activation_function = util.fullname(self.default_activation_function)
         except Exception as e:
-            logger.warning("Was not able to update config about the default_activation_function: {}".format(str(e)) )
+            logger.warning("Was not able to update config about the default_activation_function: {}".format(str(e)))
 
         # loss_fct
         if use_classfier is True:
-            weights = [0.4115, 1.3260, 3.3296] # E, S, CI (hard code)
-            self.loss_fct = torch.nn.BCEWithLogitsLoss(weight=torch.tensor(weights,
+            self.loss_fct = torch.nn.BCEWithLogitsLoss(weight=torch.tensor(classifier_weights,
                                                        dtype=torch.float32,
                                                        device=device)) 
         elif use_margin_rank_loss is True:
@@ -81,7 +82,7 @@ class CrossEncoder:
             for idx, text in enumerate(example.texts):
                 texts[idx].append(text.strip())
 
-            labels.append(example.label)
+            labels.append(self.updated_regression_label[example.label])
 
         tokenized = self.tokenizer(*texts, 
                                    padding=True, 
@@ -106,14 +107,7 @@ class CrossEncoder:
         for example in batch:
             for idx, text in enumerate(example.texts):
                 texts[idx].append(text.strip())
-            if example.label == 1:
-                # E
-                labels.append(0)
-                # S
-            elif example.label == 0.1:
-                labels.append(1)
-            else:#0, 0.01 #CI
-                labels.append(2)
+            labels.append(self.updated_classifier_label[example.label])
 
         tokenized = self.tokenizer(*texts, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_length)
 
@@ -135,7 +129,7 @@ class CrossEncoder:
         for example in batch:
             for idx, text in enumerate(example.texts):
                 texts[idx].append(text.strip())
-            labels.append(example.label)
+            labels.append(self.updated_regression_labelp[example.label])
         
         for q_idx, p_idx in [(0, 1), (0, 2)]:
             q_texts = texts[q_idx]
@@ -240,8 +234,7 @@ class CrossEncoder:
         """
         Saves all model and tokenizer to path
         """
-        if path is None:
-            return
+        path = self.args.model_cfg['model_save_path']
         self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
 
