@@ -8,9 +8,10 @@ import argparse
 from utils import load_config
 from data_process import build_dataloader
 from data_process import data_info_process
+from data_process import additional_data_process
 from model import CrossEncoder
 from model import load_cross_encoder_model
-
+from utils import evaluation
 
 
 #cuda device
@@ -29,15 +30,19 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--data_process_cfg", type=dict, default=data_process_cfg, help="None")
 parser.add_argument("--model_cfg", type=dict, default=model_cfg, help="None")
 args = parser.parse_args()
-
 print(args)
+
+
 # data process
 data_info = data_info_process(args=args)
 
 
+data_info['train_data_x'] = data_info['train_data_x'][:100]
+data_info['train_data_y'] = data_info['train_data_y'][:100]
+
 
 # additional data process
-#data_info = additional_data_process(data_info=data_info, args=args)
+data_info = additional_data_process(data_info=data_info, args=args)
 
 
 
@@ -56,11 +61,10 @@ cross_encoder_model.save()
 
 
 
-quit()
-
-
 # load model
 auto_model, auto_trf = load_cross_encoder_model(args=args)
+
+
 
 
 # evaluation for validation
@@ -71,6 +75,7 @@ evaluation(query_list=data_info['val_data_test'],
            auto_trf=auto_trf, 
            args=args,
            category='Validation')
+
 
 
 # evaluation for train

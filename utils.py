@@ -652,12 +652,13 @@ def AutoCrossEncoder_feature(head_tail_list=list, auto_model=None, auto_trf=None
     if use_classfier is False:
         logits = auto_model(**bert_input).logits
     else:
+        num_labels = args.model_cfg['num_labels']
         logits = auto_model(**bert_input).logits
         logits = torch.sigmoid(logits)
         pred_labels = np.argmax(logits.tolist(), axis=1)
-        pred_labels_onehot = np.zeros((pred_labels.size, 3))
+        pred_labels_onehot = np.zeros((pred_labels.size, num_labels))
         pred_labels_onehot[np.arange(pred_labels.size), pred_labels] = 1
-        score_array = torch.sum(logits.cpu() * pred_labels_onehot, axis=1).numpy() + (2 - pred_labels)
+        score_array = torch.sum(logits.cpu() * pred_labels_onehot, axis=1).numpy() + (num_labels-1 - pred_labels)
         logits = score_array.reshape(-1, 1)
     return logits 
 
