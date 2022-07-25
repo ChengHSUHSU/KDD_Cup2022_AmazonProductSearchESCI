@@ -10,12 +10,12 @@ target_query_locale : ['us'] # us, es, jp
 
 
 # determine validation source
-val_data_source : 'task2' # task1, task2
+val_data_source : 'task1' # task1, task2
 train_val_rate : 0.8
 
 
-
-
+Nfold : 5 # cross_validation (at least 2)
+data_info_path : 'save_data/data_info_test'
 
 
 

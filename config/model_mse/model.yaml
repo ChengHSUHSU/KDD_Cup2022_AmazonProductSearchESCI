@@ -5,7 +5,9 @@ bert_model_name: 'roberta-base'
 model_save_path : 'save_model/test'
 upstream : True
 updated_regression_label : [1, 0.1, 0, 0] # E, S, C, I; if None, then no update
-downstream_load_pkl : False
+downstream_load_pkl : True
+data_info_path : 'save_data/data_info_test'
+target_fold : 0 
 
 use_margin_rank_loss : False
 use_classfier : False
