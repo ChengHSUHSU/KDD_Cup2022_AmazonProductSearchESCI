@@ -17,10 +17,11 @@ from sentence_transformers import InputExample
 
 def data_info_process(args=None):
     # load data from pickle
-    downstream_load_pkl = args.model_cfg['downstream_load_pkl']
-    if downstream_load_pkl is True:
+    if args.model_cfg['downstream_load_pkl'] is True:
         try:
-            path = args.model_cfg['bert_model_name'] + '_data.pkl'
+            data_info_path = args.model_cfg['data_info_path']
+            target_fold = args.model_cfg['target_fold']
+            path = data_info_path + '_{}fold.pkl'.format(str(target_fold))
             with open(path, "rb") as f:
                 data = pickle.load(f)
             data_info = data['data_info']
@@ -39,24 +40,24 @@ def data_info_process(args=None):
     test_dat = pd.read_csv(test_path)
     product_dat = pd.read_csv(product_path)
     submit_dat = pd.read_csv(submit_path)
-    task2_path = args.data_process_cfg['task2_path']
-    task2_train_path = task2_path + 'train-v0.2.csv'
-    task2_product_path = task2_path + 'product_catalogue-v0.2.csv'
-    task2_train_dat = pd.read_csv(task2_train_path)
+    #task2_path = args.data_process_cfg['task2_path']
+    #task2_train_path = task2_path + 'train-v0.2.csv'
+    #task2_product_path = task2_path + 'product_catalogue-v0.2.csv'
+    #task2_train_dat = pd.read_csv(task2_train_path)
 
     # imputation
     print('imputation ...')
     train_dat = train_dat.fillna('Empty')
     test_dat = test_dat.fillna('Empty')
     product_dat = product_dat.fillna('Empty')
-    task2_train_dat = task2_train_dat.fillna('Empty')
+    #task2_train_dat = task2_train_dat.fillna('Empty')
 
     # add product_new_id
     print('add product_new_id ...')
     product_dat = build_product_idx(product_dat, locale_name='product_locale')
     train_dat = build_product_idx(train_dat, locale_name='query_locale')
     test_dat = build_product_idx(test_dat, locale_name='query_locale')
-    task2_train_dat = build_product_idx(task2_train_dat, locale_name='query_locale')
+    #task2_train_dat = build_product_idx(task2_train_dat, locale_name='query_locale')
 
     # build pd2data
     print('build pd2data ...')
@@ -67,73 +68,76 @@ def data_info_process(args=None):
     target_query_locale = args.data_process_cfg['target_query_locale']
     dat_lc = train_dat[train_dat['query_locale'].isin(target_query_locale)]
     test_dat_lc = test_dat[test_dat['query_locale'].isin(target_query_locale)]
-    task2_train_dat_lc = task2_train_dat[task2_train_dat['query_locale'].isin(target_query_locale)]
+    #task2_train_dat_lc = task2_train_dat[task2_train_dat['query_locale'].isin(target_query_locale)]
 
     # split train, val data by random_select (task1)
-    print('split train, val data by random_select ...')
-    train_dat_lc, val_dat_lc = split_train_val_data(dat_lc=dat_lc, 
-                                                    task2_dat_lc=task2_train_dat_lc, 
-                                                    pd2data=pd2data,
-                                                    args=args)
+    print('split train, val data by random_select (N-fold)...')
+    # train_dat_lc, val_dat_lc = split_train_val_data(dat_lc=dat_lc, 
+    #                                                 task2_dat_lc=None, 
+    #                                                 pd2data=pd2data,
+    #                                                 args=args)
+    data_lc_Nfolds = split_train_val_data_by_Nfold(dat_lc=dat_lc, args=args)
 
-    # build task2_complement_dat_lc
-    task2_complement_dat_lc = build_task2_complement_dat(train_dat_lc=train_dat_lc, 
-                                                         val_dat_lc=val_dat_lc, 
-                                                         task2_train_dat_lc=task2_train_dat_lc,
-                                                         pd2data=pd2data,
-                                                         args=args)
+    for fold, (train_dat_lc, val_dat_lc) in enumerate(data_lc_Nfolds):
+        # build task2_complement_dat_lc
+        # task2_complement_dat_lc = build_task2_complement_dat(train_dat_lc=train_dat_lc, 
+        #                                                      val_dat_lc=val_dat_lc, 
+        #                                                      task2_train_dat_lc=task2_train_dat_lc,
+        #                                                      pd2data=pd2data,
+        #                                                      args=args)
 
-    # build query2data
-    print('build query2data ...')
-    target_query_locale = args.data_process_cfg['target_query_locale']
-    query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=target_query_locale)
-    query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=target_query_locale)
-    query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=target_query_locale)
-    query2complement_data = build_query2data(target_dat=task2_complement_dat_lc, target_query_locale=target_query_locale)
+        # build query2data
+        print('build query2data ...')
+        target_query_locale = args.data_process_cfg['target_query_locale']
+        query2train_data = build_query2data(target_dat=train_dat_lc, target_query_locale=target_query_locale)
+        query2val_data = build_query2data(target_dat=val_dat_lc, target_query_locale=target_query_locale)
+        query2test_data = build_query2data(target_dat=test_dat_lc, target_query_locale=target_query_locale)
+        #query2complement_data = build_query2data(target_dat=task2_complement_dat_lc, target_query_locale=target_query_locale)
 
-    # build train_data_x, train_data_y 
-    print('build train_data_x, train_data_y ...')
-    train_data_x, train_data_y = [], []
-    train_data_x, train_data_y = update_train_data_x_y(query2data=query2train_data, 
-                                                       train_data_x=train_data_x, 
-                                                       train_data_y=train_data_y, 
+        # build train_data_x, train_data_y 
+        print('build train_data_x, train_data_y ...')
+        train_data_x, train_data_y = [], []
+        train_data_x, train_data_y = update_train_data_x_y(query2data=query2train_data, 
+                                                           train_data_x=train_data_x, 
+                                                           train_data_y=train_data_y, 
+                                                           pd2data=pd2data,
+                                                           args=args,
+                                                           train_mode='regression')
+        # build train_data_x, train_data_y 
+        print('build train_data_x, train_data_y ...')
+        val_data_x, val_data_y = [], []
+        val_data_x, val_data_y = update_train_data_x_y(query2data=query2val_data, 
+                                                       train_data_x=val_data_x, 
+                                                       train_data_y=val_data_y, 
                                                        pd2data=pd2data,
                                                        args=args,
                                                        train_mode='regression')
-    # build train_data_x, train_data_y 
-    print('build train_data_x, train_data_y ...')
-    val_data_x, val_data_y = [], []
-    val_data_x, val_data_y = update_train_data_x_y(query2data=query2val_data, 
-                                                   train_data_x=val_data_x, 
-                                                   train_data_y=val_data_y, 
-                                                   pd2data=pd2data,
-                                                   args=args,
-                                                   train_mode='regression')
-    # build val_data_test
-    print('build val_data_test ...')
-    val_data_test = list(query2val_data.keys())
+        # build val_data_test
+        print('build val_data_test ...')
+        val_data_test = list(query2val_data.keys())
 
-    # output
-    data_info = {
-                 'train_data_x' : train_data_x,
-                 'train_data_y' : train_data_y,
-                 'query2train_data' : query2train_data,
-                 'query2val_data' : query2val_data,
-                 'query2test_data' : query2test_data,
-                 'pd2data' : pd2data,
-                 'val_data_test' : val_data_test
-                }
-
-    # save data to pickle
-    upstream = args.model_cfg['upstream']
-    model_save_path = args.model_cfg['model_save_path']
-    if upstream is True:
-        path = model_save_path + '_data.pkl'
+        # output
+        data_info = {
+                     'train_data_x' : train_data_x,
+                     'train_data_y' : train_data_y,
+                     'query2train_data' : query2train_data,
+                     'query2val_data' : query2val_data,
+                     'query2test_data' : query2test_data,
+                     'pd2data' : pd2data,
+                     'val_data_test' : val_data_test
+                    }
+        
+        # save data_info
+        data_info_path = args.data_process_cfg['data_info_path']
+        data_info_Nfold_path = data_info_path + '_{}fold.pkl'.format(str(fold))
         data = {'data_info' : data_info}
-        with open(path, "wb") as f:
+        with open(data_info_Nfold_path, "wb") as f:
             pickle.dump(data, f)
-
-    return data_info
+    print('''
+          [Warning] : Dont move on modeling_stage, because the stage is for data_process.
+          If expect to move on modeling_stage, please set downstream_load_pkl = True.
+          ''')
+    quit()
 
 
 
@@ -224,6 +228,41 @@ def split_train_val_data(dat_lc=None, task2_dat_lc=None, pd2data=dict, args=None
         val_dat_lc = task2_dat_lc[task2_dat_lc['query'].isin(val_query_list)]
         val_dat_lc = val_dat_lc[val_dat_lc['product_new_id'].isin(task1_pd_set)]
     return train_dat_lc, val_dat_lc
+
+
+
+def split_train_val_data_by_Nfold(dat_lc=None, args=None):
+    # init
+    data_lc_Nfolds = []
+
+    # init parameter
+    Nfold = args.data_process_cfg['Nfold']
+
+    # init Nfold_idxs
+    n_sample = len(set(dat_lc['query']))
+    base_val = int(n_sample / Nfold)
+    Nfold_idxs = [0] + [i for i in range(1, n_sample) if i % base_val == 0]
+    if n_sample - 1 not in Nfold_idxs:
+        Nfold_idxs = Nfold_idxs[:-1]
+        Nfold_idxs.append(n_sample- 1)
+
+    # random query_list
+    query_list = list(set(dat_lc['query']))
+    query_list = random.sample(query_list, len(query_list))
+
+    # main
+    for i in range(len(Nfold_idxs)-1):
+        st_idx, ed_idx = Nfold_idxs[i], Nfold_idxs[i+1]
+        # take train, val query
+        val_query_list = query_list[st_idx : ed_idx + 1]
+        train_query_list = query_list[ : st_idx] + query_list[ed_idx + 1 : ]
+        # take train, val data
+        train_dat_lc = dat_lc[dat_lc['query'].isin(train_query_list)]
+        val_dat_lc = dat_lc[dat_lc['query'].isin(val_query_list)]
+        data_lc_Nfolds.append([train_dat_lc, val_dat_lc])
+    return data_lc_Nfolds
+
+
 
 
 
@@ -467,7 +506,7 @@ def build_dataloader(train_data_x=None,
     return train_dataloader
 
 
-
+ 
 
 
 def additional_data_process(data_info=dict, args=None):
