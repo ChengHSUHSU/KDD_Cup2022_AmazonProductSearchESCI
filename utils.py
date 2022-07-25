@@ -285,7 +285,6 @@ def evaluation(query_list=list,
                args=None, 
                category='Train'):
     # init parameter
-    upstream = args.model_cfg['upstream']
     use_mixed_model = args.model_cfg['use_mixed_model']
     target_query_locale = args.data_process_cfg['target_query_locale']
     model_save_path = args.model_cfg['model_save_path']
@@ -407,8 +406,10 @@ def evaluation(query_list=list,
                 add_log_record(message='\n'+dat.to_string(), args=args)
 
         # save query_ndcg for train_data
-        if category != 'Validation' and upstream is True and save_train_infer_score_as_data is True:
-            path = model_save_path + '_data.pkl'
+        if category != 'Validation'  and save_train_infer_score_as_data is True:
+            data_info_path = args.model_cfg['data_info_path']
+            target_fold = args.model_cfg['target_fold']
+            path = data_info_path + '_{}fold.pkl'.format(str(target_fold))
             with open(path, "rb") as f:
                 data = pickle.load(f)
             data['query_locale2query2score'] = query_locale2query2score
