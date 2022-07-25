@@ -4,13 +4,14 @@
 
 import yaml
 import torch
+import pickle
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
 
 
-
+ 
 
 
 
@@ -275,7 +276,7 @@ def flatten_idx(idx_List=list, ngram=int):
 
 
 
-
+ 
 def evaluation(query_list=list, 
                query2data=dict, 
                pd2data=dict, 
@@ -286,7 +287,7 @@ def evaluation(query_list=list,
     # init parameter
     upstream = args.model_cfg['upstream']
     use_mixed_model = args.model_cfg['use_mixed_model']
-    target_query_locale = args.model_cfg['target_query_locale']
+    target_query_locale = args.data_process_cfg['target_query_locale']
     model_save_path = args.model_cfg['model_save_path']
     save_train_infer_score_as_data = args.model_cfg['save_train_infer_score_as_data']
 
@@ -406,7 +407,7 @@ def evaluation(query_list=list,
                 add_log_record(message='\n'+dat.to_string(), args=args)
 
         # save query_ndcg for train_data
-        if category != 'Validation' and upstream is True and args.save_train_infer_score_as_data is True:
+        if category != 'Validation' and upstream is True and save_train_infer_score_as_data is True:
             path = model_save_path + '_data.pkl'
             with open(path, "rb") as f:
                 data = pickle.load(f)
@@ -414,6 +415,24 @@ def evaluation(query_list=list,
             data['query_locale2query2ndcg_matrix'] = query_locale2query2ndcg_matrix
             with open(path, "wb") as f:
                 pickle.dump(data, f)
+
+
+
+
+def init_ndcg_matrix():
+    label_list = ['E', 'S', 'C', 'I']
+    ndcg_matrix = {'E':{}, 'S':{}, 'C':{}, 'I':{}}
+    for label_t in label_list:
+        for label_s in label_list:
+            if label_t != label_s:
+                ndcg_matrix[label_t][label_s] = []
+            else:
+                ndcg_matrix[label_t][label_s] = None
+    return ndcg_matrix
+
+
+
+
 
  
 
@@ -775,6 +794,45 @@ def build_query2passage5score_mixed(query_list=list,
 
 
 
+def setup_logger(date, logger_name, log_file):
+    import logging
+    level=logging.INFO
+    try:
+        l = logging.getLogger(logger_name)
+        formatter = logging.Formatter('{} : %(message)s'.format(date))
+        fileHandler = logging.FileHandler(log_file, mode='a')
+        fileHandler.setFormatter(formatter)
+        streamHandler = logging.StreamHandler()
+        streamHandler.setFormatter(formatter)
+        l.setLevel(level)
+        l.addHandler(fileHandler)
+        l.addHandler(streamHandler)
+        l.removeHandler(streamHandler)
+    except Exception as error_message:
+        print(error_message)
+
+
+
+def add_log_record(message, args=None):
+    import logging
+    from datetime import datetime
+    # init parameter
+    model_save_path = args.model_cfg['model_save_path']
+    # add log
+    try:
+        now_datetime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        now_date = now_datetime.split()[0]
+        setup_logger(now_datetime, 'log', 'save_log/{}.log'.format(model_save_path.replace('/', '-')))
+        log = logging.getLogger('log')
+
+        streamhandler = logging.StreamHandler()
+        log.addHandler(streamhandler)
+        log.info(message)
+        log.removeHandler(streamhandler)
+
+    except Exception as error_message:
+        print('error_message---------------')
+        print(error_message)
 
 
 
