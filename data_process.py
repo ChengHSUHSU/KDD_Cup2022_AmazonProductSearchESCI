@@ -1,4 +1,4 @@
-
+   
 
 import re
 import random
@@ -120,7 +120,8 @@ def data_info_process(args=None):
                  'query2train_data' : query2train_data,
                  'query2val_data' : query2val_data,
                  'query2test_data' : query2test_data,
-                 'pd2data' : pd2data
+                 'pd2data' : pd2data,
+                 'val_data_test' : val_data_test
                 }
 
     # save data to pickle
@@ -464,6 +465,191 @@ def build_dataloader(train_data_x=None,
             train_samples.append(InputExample(texts=[query, left_passage, right_passage], label=float(gain_y)))
     train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=batch_size, drop_last=drop_last)
     return train_dataloader
+
+
+
+
+
+def additional_data_process(data_info=dict, args=None):
+    '''
+    1. two_stage_replace_label
+    2. margin rank data
+    '''
+    # init parameter
+    updated_regression_label = args.model_cfg['updated_regression_label']
+    use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
+    
+    # train data
+    train_data_x = data_info['train_data_x']
+    train_data_y = data_info['train_data_y']
+    train_data = [train_data_x, train_data_y]
+    
+    # replace label for two_stage
+    if updated_regression_label is not None:
+        # updayed label
+        E_label = updated_regression_label[0]
+        S_label = updated_regression_label[1]
+        C_label = updated_regression_label[2]
+        I_label = updated_regression_label[3]
+        # update
+        train_data_x_update = []
+        train_data_y_update = []
+        for i, gain in enumerate(train_data_y):
+            x = train_data_x[i]
+            if gain == 1:
+                train_data_x_update.append(x)
+                train_data_y_update.append(E_label)
+            elif gain == 0.1:
+                train_data_x_update.append(x)
+                train_data_y_update.append(S_label)
+            elif gain == 0.01:
+                train_data_x_update.append(x)
+                train_data_y_update.append(C_label)
+            elif gain == 0.0:
+                train_data_x_update.append(x)
+                train_data_y_update.append(I_label)
+        train_data_x = train_data_x_update
+        train_data_y = train_data_y_update
+
+    # margin rank data
+    if use_margin_rank_loss is True:
+        query2train_data = data_info['query2train_data']
+        query_locale2query2score = data_info['query_locale2query2score']
+        train_data_x, train_data_y = build_margin_rank_data(query2train_data=query2train_data, 
+                                                            query_locale2query2score=query_locale2query2score, 
+                                                            train_data=train_data, 
+                                                            args=args)
+    data_info['train_data_x'] = train_data_x
+    data_info['train_data_y'] = train_data_y
+    return data_info
+
+
+
+
+
+def build_margin_rank_data(query2train_data=dict, query_locale2query2score=None, train_data=list, args=None):
+    '''
+    1. |sample_E_S|, |sample_E_CI|, |sample_S_CI| > 0
+    2. minmax(|E_S|, |E_CI|, |S_CI|)  = P_E_S, P_E_CI, P_S_CI
+    3. random_choice(E_S, E_CI, S_CI, weight), where weight = (P_E_S, P_E_CI, P_S_CI)
+    '''
+    # init parameter 
+    margin_rank_sample_rate = args.model_cfg['margin_rank_sample_rate']
+    # init train_data_x, train_data_y
+    train_data_x, train_data_y = [], []
+    # build query_list
+    query_list_update, weights = [], []
+    query_list = list(query2train_data.keys())
+    sample_n = int(margin_rank_sample_rate * len(query_list))
+    idx_list = [i for i in range(len(query_list))]
+    use_train_ndcg_as_sample_prod = True
+    if use_train_ndcg_as_sample_prod is True:
+        for i, query in tqdm(enumerate(query_list)):
+            query_locale = query2train_data[query]['locale']
+            if query in query_locale2query2score[query_locale]:
+                score = query_locale2query2score[query_locale][query]
+            else:
+                score = 0.1
+                print('[Warning] : if query not in query_locale2query2score[query_locale]..')
+            weights.append(score)
+        sum_ = sum(weights)
+        weights = [val/sum_ for val in weights]
+        sample_idxs = np.random.choice(idx_list, sample_n, p=weights, replace=False)
+        for i in sample_idxs:
+            query_list_update.append(query_list[i])
+        query_list = query_list_update
+    # main
+    #query_list = query_list[:10]
+    for query in tqdm(query_list):
+        # init train_data_x_sm, train_data_y_sm
+        train_data_x_sm = []
+        train_data_y_sm = []
+        #query_locale = query2train_data['locale']
+        # data_list
+        data_list = query2train_data[query]['data']
+        # determine sample_n
+        sample_n = len(data_list) * 2
+        # build label2pdi_list
+        label2pdi_list = {'E' : [], 'S' : [], 'CI' : []}
+        for record in data_list:
+            gain = record['gain']
+            product_new_id = record['product_new_id']
+            if gain == 1.0:
+                label2pdi_list['E'].append(product_new_id)
+            elif gain == 0.1:
+                label2pdi_list['S'].append(product_new_id)
+            else:
+                label2pdi_list['CI'].append(product_new_id)
+        # build pair_label2pair_pdi_list
+        pair_label2pair_pdi_list = {'E-S' : [], 'E-CI' : [], 'S-CI' : []}
+        for label_t in ['E', 'S', 'CI']:
+            pdi_list_t = label2pdi_list[label_t]
+            for label_s in ['E', 'S', 'CI']:
+                pdi_list_s = label2pdi_list[label_s]
+                pair_label = label_t + '-' + label_s
+                if pair_label in pair_label2pair_pdi_list:  
+                    for pdi_t in pdi_list_t:
+                        for pdi_s in pdi_list_s:
+                            pair_label2pair_pdi_list[pair_label].append([pdi_t, pdi_s])
+        # randomly select one as data
+        for pair_label in ['E-S', 'E-CI', 'S-CI']:
+            if len(pair_label2pair_pdi_list[pair_label]) > 0:
+                pair_pdi = random.sample(pair_label2pair_pdi_list[pair_label], 1)[0]
+                train_data_x_sm.append([query] + pair_pdi)
+                sample_n -=1
+        # min-max normalization
+        ES_num = len(pair_label2pair_pdi_list['E-S'])
+        ECI_num = len(pair_label2pair_pdi_list['E-CI'])
+        SCI_num = len(pair_label2pair_pdi_list['S-CI'])
+        sum_ = sum([ES_num, ECI_num, SCI_num])
+        if sum_ != 0:
+            P_ES = ES_num / sum_
+            P_ECI = ECI_num / sum_
+            P_SCI = SCI_num / sum_
+        else:
+            P_ES, P_ECI, P_SCI = 0,0,0
+        # determine expectation_value
+        pair_label2expect_num = {
+                                 'E-S' : int(P_ES * sample_n), 
+                                 'E-CI' : int(P_ECI * sample_n),
+                                 'S-CI' : int(P_SCI * sample_n)
+                                }
+        # randomly select data by expect_value
+        non_zero_num = 0
+        for pair_label in ['E-S', 'E-CI', 'S-CI']:
+            pair_pdi_list = pair_label2pair_pdi_list[pair_label]
+            expect_num = pair_label2expect_num[pair_label]
+            if len(pair_pdi_list) > 0 and expect_num > 0:
+                non_zero_num += 1
+        if non_zero_num >= 1:
+
+            for pair_label in ['E-S', 'E-CI', 'S-CI']:
+                pair_pdi_list = pair_label2pair_pdi_list[pair_label]
+                if non_zero_num != 1:
+                    expect_num = pair_label2expect_num[pair_label]
+                else:
+                    expect_num = 5
+                if len(pair_pdi_list) > 0 and expect_num > 0:
+                    sample_pair_pdi_list = random.sample(pair_pdi_list, min(expect_num, len(pair_pdi_list)))
+                    for pair_pdi in sample_pair_pdi_list:
+                        train_data_x_sm.append([query] + pair_pdi) 
+            # randomly select half data as posm neg data
+            idx_list = [i for i in range(len(train_data_x_sm))]
+            if len(train_data_x_sm) > 1:
+                sample_pos_idx_set = set(random.sample(idx_list, int(len(idx_list) / 2)))
+            else:
+                sample_pos_idx_set = set(train_data_x_sm)
+            for idx in idx_list:
+                if idx not in sample_pos_idx_set:
+                    # swap
+                    train_data_x_sm[idx][2], train_data_x_sm[idx][1] = train_data_x_sm[idx][1], train_data_x_sm[idx][2]
+                    train_data_y_sm.append(-1)
+                else:
+                    train_data_y_sm.append(1)
+            # coolect train_data_x, train_data_y
+            train_data_x += train_data_x_sm
+            train_data_y += train_data_y_sm
+    return train_data_x, train_data_y
 
 
 
