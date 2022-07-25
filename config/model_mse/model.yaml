@@ -1,9 +1,10 @@
 
-
+ 
 
 bert_model_name: 'roberta-base'
 model_save_path : 'save_model/test'
 upstream : True
+updated_regression_label : [1, 0.1, 0, 0] # E, S, C, I; if None, then no update
 downstream_load_pkl : False
 
 use_margin_rank_loss : False
@@ -38,4 +39,7 @@ use_mixed_model : False
 
 
 save_train_infer_score_as_data : True
+
+margin_rank_sample_rate : 0.5
+
 

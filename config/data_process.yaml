@@ -14,7 +14,7 @@ val_data_source : 'task2' # task1, task2
 train_val_rate : 0.8
 
 
-downstream_load_pkl : False
+
 
 
 
