@@ -85,4 +85,24 @@ The following table shows the baseline results obtained through the different pu
 
 
 
+## FEATURES
 
+
+| Feature |  Status  | Note |
+|:----:|:--------:|:-----:|
+|   MSE_SINGLE    | done | - |
+|   MSE_TWO_STAGE  | done     | - |
+|   CLASSIFIER  | done     | - |
+|   MSE_MARGIN_RANK | not-yet | sampling_algorithm |
+|   MIXED_MODEL  | done     | - |
+|   CROSS_VALIDATION  | done     | - |
+|   KNOWLEDGE_DISTILLATION  | not-yet     | logits_sync |
+|   TEXT_FEATURES_EXACTOR  |  ?     | ? |
+|   CLRP  |  ?     | REF : [https://www.kaggle.com/code/chamecall/clrp-finetune-roberta-large/notebook] |
+|   SETTING_LR_STRATEGY_IN_BERT_LAYER  |  ?     | REF : [https://www.kaggle.com/code/chamecall/clrp-finetune-roberta-large/notebook] |
+|   PESUDO_LABEL  |  ?     | ? |
+|   FGM  |  ?     | ? |
+|   EMA  |  ?     | ? |
+|-|-|-
+
+CLRP
