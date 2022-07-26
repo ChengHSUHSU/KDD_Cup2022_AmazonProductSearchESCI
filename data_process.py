@@ -509,6 +509,57 @@ def build_dataloader(train_data_x=None,
     if use_margin_rank_loss is False:
         for i, (query, passage) in enumerate(head_tail_list):
             gain_y = label_list[i]
+            query, pdi = train_data_x[i]
+            text_info = {
+                         'texts' : [query, passage],
+                         'query' : query,
+                         'pdi' : pdi
+                        }
+            train_samples.append(InputExample(texts=text_info, label=gain_y))
+    else:
+        for i, (query, left_passage, right_passage) in enumerate(head_tail_list):
+            gain_y = label_list[i]
+            query, left_pdi, right_pdi = train_data_x[i]
+            text_info = {
+                         'texts' : [query, left_passage, right_passage],
+                         'query' : query,
+                         'left_pdi' : left_pdi,
+                         'right_pdi' : right_pdi
+                        }
+            train_samples.append(InputExample(texts=text_info, label=gain_y))
+    train_dataloader = DataLoader(train_samples, shuffle=True, batch_size=batch_size, drop_last=drop_last)
+    return train_dataloader
+
+
+def build_dataloader_OLD(train_data_x=None, 
+                     train_data_y=None,
+                     pd2data=dict,
+                     args=None,
+                     drop_last=True):
+    # init parameter
+    batch_size = args.model_cfg['batch_size']
+    use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
+    
+
+    if use_margin_rank_loss is False:
+        head_tail_list, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=train_data_x,
+                                                                      pd2data=pd2data,
+                                                                      eval_mode=False,
+                                                                      args=args)
+    else:
+        head_tail_list, sent_length = convert_pdi_pdi_to_sent_feature(q_pdi_pdi_list=train_data_x, 
+                                                                      pd2data=pd2data, 
+                                                                      args=args)
+    if train_data_y is None:
+        label_list = [0.0 for _ in range(len(train_data_x))]
+    else:
+        label_list = train_data_y
+    
+    # convert into train_dataloader 
+    train_samples = []
+    if use_margin_rank_loss is False:
+        for i, (query, passage) in enumerate(head_tail_list):
+            gain_y = label_list[i]
             train_samples.append(InputExample(texts=[query, passage], label=gain_y))
     else:
         for i, (query, left_passage, right_passage) in enumerate(head_tail_list):
