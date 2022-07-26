@@ -1,5 +1,6 @@
 
 
+import pickle
 import numpy as np
 from tqdm.autonotebook import tqdm, trange
 
@@ -71,18 +72,25 @@ class CrossEncoder:
             self.loss_fct = torch.nn.MarginRankingLoss(margin=margin)
         else:
             self.loss_fct = torch.nn.MSELoss()
+        
+        # save training feature
+        self.training_info = {'train_x' : [], 'train_y' : [], 'logits' : []}
 
 
 
     def smart_batching_collate(self, batch):
-        texts = [[] for _ in range(len(batch[0].texts))]
+        texts = [[] for _ in range(len(batch[0].texts['texts']))]
         labels = []
+        organics = []
 
         for example in batch:
-            for idx, text in enumerate(example.texts):
+            texts_info = example.texts
+            query = texts_info['query']
+            pdi = texts_info['pdi']
+            for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
-
             labels.append(self.updated_regression_label[example.label])
+            organics.append([query, pdi])
 
         tokenized = self.tokenizer(*texts, 
                                    padding=True, 
@@ -95,19 +103,24 @@ class CrossEncoder:
         for name in tokenized:
             tokenized[name] = tokenized[name].to(self._target_device)
 
-        return tokenized, labels
+        return tokenized, labels, organics
 
 
 
     def smart_batching_collate_classifier(self, batch):
-        texts = [[] for _ in range(len(batch[0].texts))]
+        texts = [[] for _ in range(len(batch[0].texts['texts']))]
         labels = []
+        organics = []
         onehot = np.eye(self.config.num_labels)
 
         for example in batch:
-            for idx, text in enumerate(example.texts):
+            texts_info = example.texts
+            query = texts_info['query']
+            pdi = texts_info['pdi']
+            for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
             labels.append(self.updated_classifier_label[example.label])
+            organics.append([query, pdi])
 
         tokenized = self.tokenizer(*texts, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_length)
 
@@ -117,19 +130,24 @@ class CrossEncoder:
         for name in tokenized:
             tokenized[name] = tokenized[name].to(self._target_device)
 
-        return tokenized, labels
+        return tokenized, labels, organics
 
 
 
     def smart_batching_collate_for_marginrank(self, batch):
-        texts = [[] for _ in range(len(batch[0].texts))]
+        texts = [[] for _ in range(len(batch[0].texts['texts']))]
         labels = []
         tokenized_list = []
 
         for example in batch:
-            for idx, text in enumerate(example.texts):
+            texts_info = example.texts
+            query = texts_info['query']
+            left_pdi = texts_info['left_pdi']
+            right_pdi = texts_info['right_pdi']
+            for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
             labels.append(self.updated_regression_labelp[example.label])
+            organics.append([query, left_pdi, right_pdi])
         
         for q_idx, p_idx in [(0, 1), (0, 2)]:
             q_texts = texts[q_idx]
@@ -149,7 +167,7 @@ class CrossEncoder:
                             dtype=torch.float if self.config.num_labels == 1 \
                             else torch.long).to(self._target_device)
 
-        return tokenized_list, labels
+        return tokenized_list, labels, organics
 
 
 
@@ -199,10 +217,10 @@ class CrossEncoder:
         for epoch in trange(epoch_num, desc="Epoch", disable=not show_progress_bar):
             self.model.zero_grad()
             self.model.train()
-            for features, labels in tqdm(train_dataloader, 
-                                         desc="Iteration", 
-                                         smoothing=0.05, 
-                                         disable=not show_progress_bar):
+            for features, labels, organics in tqdm(train_dataloader, 
+                                                   desc="Iteration", 
+                                                   smoothing=0.05, 
+                                                   disable=not show_progress_bar):
                 # calculate loss_val
                 if use_margin_rank_loss is True:
                     features_left = features[0]
@@ -217,9 +235,16 @@ class CrossEncoder:
                     if self.config.num_labels == 1:
                         logits = logits.view(-1)
                         loss_value = self.loss_fct(logits, labels)
+                        logits_ent = activation_fct(logits).tolist()
                     else:
                         loss_value = self.loss_fct(logits.view(-1,self.config.num_labels),
                                                    labels.type_as(logits).view(-1,self.config.num_labels))
+                        logits_ent = torch.softmax(activation_fct(logits), dim=1).tolist()
+                    # save training info
+                    self.training_info['train_x'] += organics
+                    self.training_info['train_y'] += labels.tolist()
+                    self.training_info['logits'] += logits_ent
+
                 # backward to loss_value
                 loss_value.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
@@ -235,8 +260,15 @@ class CrossEncoder:
         Saves all model and tokenizer to path
         """
         path = self.args.model_cfg['model_save_path']
+        save_training_info = self.args.model_cfg['save_training_info']
         self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
+
+        if save_training_info is True:
+            path_pkl = path + '_data.pkl'
+            data = {'training_info' : self.training_info} 
+            with open(path, "wb") as f:
+                pickle.dump(data, f)
 
 
 
@@ -246,12 +278,24 @@ def load_cross_encoder_model(args=None):
     # init parameter
     device = args.model_cfg['device']
     model_save_path = args.model_cfg['model_save_path']
+    target_query_locale = args.data_process_cfg['target_query_locale']
+    model_info = args.model_cfg['model_info']
+    use_mixed_model = args.model_cfg['use_mixed_model']
+
     # main
-    auto_model = AutoModelForSequenceClassification.from_pretrained(model_save_path).to(device)
-    auto_trf = AUTOTransformer(bert_model_name=model_save_path, device=device)
+    if use_mixed_model is False:
+        auto_model = AutoModelForSequenceClassification.from_pretrained(model_save_path).to(device)
+        auto_trf = AUTOTransformer(bert_model_name=model_save_path, device=device)
+    else:
+        model_name_list = []
+        for locale in target_query_locale:
+            model_name_list += [m for m, w in model_info[locale]]
+        model_name_list = list(set(model_name_list))
+        auto_model, auto_trf = dict(), dict()
+        for model_name in model_name_list:
+            auto_model[model_name] = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
+            auto_trf[model_name] = AUTOTransformer(bert_model_name=model_name, device=device)
     return auto_model, auto_trf
-
-
 
 
 
