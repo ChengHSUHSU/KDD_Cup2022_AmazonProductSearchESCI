@@ -1,8 +1,8 @@
 
- 
 
 
- 
+
+
 # often used
 bert_model_name: 'roberta-base'
 model_save_path : 'save_model/test'
@@ -36,5 +36,7 @@ epoch_num : 1
 warmup_steps : 5000
 margin : 0.00002
 margin_rank_sample_rate : 0.5
+
+
 
 
