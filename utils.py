@@ -288,7 +288,7 @@ def evaluation(query_list=list,
     use_mixed_model = args.model_cfg['use_mixed_model']
     target_query_locale = args.data_process_cfg['target_query_locale']
     model_save_path = args.model_cfg['model_save_path']
-    save_train_infer_score_as_data = args.model_cfg['save_train_infer_score_as_data']
+    save_training_info = args.model_cfg['save_training_info']
 
     # init container
     ndcg_avg_score = []
@@ -406,15 +406,17 @@ def evaluation(query_list=list,
                 add_log_record(message='\n'+dat.to_string(), args=args)
 
         # save query_ndcg for train_data
-        if category != 'Validation'  and save_train_infer_score_as_data is True:
-            data_info_path = args.model_cfg['data_info_path']
-            target_fold = args.model_cfg['target_fold']
-            path = data_info_path + '_{}fold.pkl'.format(str(target_fold))
-            with open(path, "rb") as f:
-                data = pickle.load(f)
+        if save_training_info is True:
+            path_pkl = model_save_path + '_data.pkl'
+            try:
+                with open(path_pkl, "rb") as f:
+                    data = pickle.load(f)
+            except:
+                data = dict()
+                print('[Warning] : {} is not exist.'.format(path_pkl))
             data['query_locale2query2score'] = query_locale2query2score
             data['query_locale2query2ndcg_matrix'] = query_locale2query2ndcg_matrix
-            with open(path, "wb") as f:
+            with open(path_pkl, "wb") as f:
                 pickle.dump(data, f)
 
 
@@ -599,6 +601,7 @@ def build_query2passage5score(query_list=list,
                               args=None):
     # init parameter
     batch_size = args.model_cfg['batch_size']
+    use_classfier = args.model_cfg['use_classfier']
 
     # init container
     query2passage5score = dict() 
@@ -611,6 +614,7 @@ def build_query2passage5score(query_list=list,
 
     # init batch_num
     batch_num = int(len(data_x_infer) / batch_size) + 1
+
         
     # main - infer
     for i in tqdm(range(batch_num)):
@@ -626,7 +630,8 @@ def build_query2passage5score(query_list=list,
                                                   auto_model=auto_model, 
                                                   auto_trf=auto_trf, 
                                                   sent_length=sent_length,
-                                                  args=args).tolist()
+                                                  args=args,
+                                                  use_classfier=use_classfier).tolist()
            
             for j, query_sent_feature in enumerate(data_text_x_batch):
                 score = score_list[j][0]
@@ -643,13 +648,9 @@ def build_query2passage5score(query_list=list,
 
 
 
-def AutoCrossEncoder_feature(head_tail_list=list, auto_model=None, auto_trf=None, sent_length=list, args=None):
-    # init parameter
-    use_classfier = args.model_cfg['use_classfier']
-    
+def AutoCrossEncoder_feature(head_tail_list=list, auto_model=None, auto_trf=None, sent_length=list, args=None, use_classfier=False):
     bert_input = auto_trf.convert_batch_sent_to_bert_input(batch_sent=head_tail_list, sent_length=sent_length)
     bert_input = auto_trf.transform_bert_input_into_tensor(bert_input=bert_input)
-
     if use_classfier is False:
         logits = auto_model(**bert_input).logits
     else:
@@ -673,6 +674,10 @@ def build_query2passage5score_mixed(query_list=list,
                               auto_model=None, 
                               auto_trf=None,
                               args=None):
+    # init parameter
+    batch_size = args.model_cfg['batch_size']
+    model_info = args.model_cfg['model_info']
+
     # init container
     query2passage5score = dict() 
     locale2data_x_infer = {'us' : [], 'es' : [], 'jp' : []}
@@ -680,7 +685,7 @@ def build_query2passage5score_mixed(query_list=list,
     # init locale2model_name2qps
     locale2model_name2qps = {'us' : dict(), 'es' : dict(), 'jp' : dict()}
     for locale in ['us', 'es', 'jp']:
-        model_name_list = args.model_info[locale]
+        model_name_list = model_info[locale]
         for model_name, weight in model_name_list:
             locale2model_name2qps[locale][model_name] = dict()
 
@@ -696,47 +701,48 @@ def build_query2passage5score_mixed(query_list=list,
         
         # init data_x_infer, batch_num
         data_x_infer = locale2data_x_infer[locale]
-        batch_num = int(len(data_x_infer) / args.batch_size) + 1
+        batch_num = int(len(data_x_infer) / batch_size) + 1
 
         # lauch model
-        model_name_list = args.model_info[locale]
+        model_name_list = model_info[locale]
         for model_name, weight in model_name_list:
-            model_ = auto_model[model_name]
-            trf_ = auto_trf[model_name]
-            if 'classifier' in model_name:
-                use_classfier = True
-            else:
-                use_classfier = False
+            if model_name in auto_model:
+                model_ = auto_model[model_name]
+                trf_ = auto_trf[model_name]
+                if 'classifier' in model_name:
+                    use_classfier = True
+                else:
+                    use_classfier = False
 
-            # main - infer
-            for i in tqdm(range(batch_num)):
-                data_x_batch = data_x_infer[i*args.batch_size : (i+1)*args.batch_size]
-                if len(data_x_batch) != 0:
-                    # build batch x
-                    data_text_x_batch, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=data_x_batch,
-                                                                                    pd2data=pd2data,
-                                                                                    eval_mode=True,
-                                                                                    args=args)
-                    # infer score    
-                    score_list = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch, 
-                                                        auto_model=model_, 
-                                                        auto_trf=trf_, 
-                                                        sent_length=sent_length,
-                                                        args=args,
-                                                        use_classfier=use_classfier).tolist()
-                    # collect query-product-score data
-                    for j, query_sent_feature in enumerate(data_text_x_batch):
-                        score = score_list[j][0]
-                        query = query_sent_feature[0]
-                        query_, pdi = data_x_batch[j]
-                        if query not in locale2model_name2qps[locale][model_name]:
-                            locale2model_name2qps[locale][model_name][query] = dict()
-                        locale2model_name2qps[locale][model_name][query][pdi] = score
+                # main - infer
+                for i in tqdm(range(batch_num)):
+                    data_x_batch = data_x_infer[i*batch_size : (i+1)*batch_size]
+                    if len(data_x_batch) != 0:
+                        # build batch x
+                        data_text_x_batch, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=data_x_batch,
+                                                                                        pd2data=pd2data,
+                                                                                        eval_mode=True,
+                                                                                        args=args)
+                        # infer score    
+                        score_list = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch, 
+                                                            auto_model=model_, 
+                                                            auto_trf=trf_, 
+                                                            sent_length=sent_length,
+                                                            args=args,
+                                                            use_classfier=use_classfier).tolist()
+                        # collect query-product-score data
+                        for j, query_sent_feature in enumerate(data_text_x_batch):
+                            score = score_list[j][0]
+                            query = query_sent_feature[0]
+                            query_, pdi = data_x_batch[j]
+                            if query not in locale2model_name2qps[locale][model_name]:
+                                locale2model_name2qps[locale][model_name][query] = dict()
+                            locale2model_name2qps[locale][model_name][query][pdi] = score
     
     # calculate max, min for each locale-model_name
     for locale in list(locale2data_x_infer.keys()):
         model_name2qps = locale2model_name2qps[locale]
-        for model_name, weight in args.model_info[locale]:
+        for model_name, weight in model_info[locale]:
             score_list = []
             max_score = 1
             min_score = 2
@@ -780,7 +786,7 @@ def build_query2passage5score_mixed(query_list=list,
         for p in pdi_list:
             p2s_list[p] = []
         # collect p2s_list
-        for model_name, weight in args.model_info[query_locale]:
+        for model_name, weight in model_info[query_locale]:
             p2s = locale2model_name2qps[query_locale][model_name][query]
             for p in pdi_list:
                 s = p2s[p]
