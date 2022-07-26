@@ -46,18 +46,19 @@ data_info = additional_data_process(data_info=data_info, args=args)
 
 
 
-# build dataloader for trainig
-train_dataloader = build_dataloader(train_data_x=data_info['train_data_x'], 
-                                    train_data_y=data_info['train_data_y'],
-                                    pd2data=data_info['pd2data'],
-                                    args=args)
+if args.model_cfg['only_eval'] is False:
+    # build dataloader for trainig
+    train_dataloader = build_dataloader(train_data_x=data_info['train_data_x'], 
+                                        train_data_y=data_info['train_data_y'],
+                                        pd2data=data_info['pd2data'],
+                                        args=args)
 
 
 
-# modeling
-cross_encoder_model = CrossEncoder(args=args)
-cross_encoder_model.fit(train_dataloader=train_dataloader)
-cross_encoder_model.save()
+    # modeling
+    cross_encoder_model = CrossEncoder(args=args)
+    cross_encoder_model.fit(train_dataloader=train_dataloader)
+    cross_encoder_model.save()
 
 
 
