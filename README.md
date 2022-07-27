@@ -88,21 +88,20 @@ The following table shows the baseline results obtained through the different pu
 ## FEATURES
 
 
-| Feature |  Status  | Note |
-|:----:|:--------:|:-----:|
-|   MSE_SINGLE    | done | - |
-|   MSE_TWO_STAGE  | done     | - |
-|   CLASSIFIER  | done     | - |
-|   MSE_MARGIN_RANK | not-yet | sampling_algorithm |
-|   MIXED_MODEL  | done     | - |
-|   CROSS_VALIDATION  | done     | - |
-|   KNOWLEDGE_DISTILLATION  | not-yet     | logits_sync |
-|   TEXT_FEATURES_EXACTOR  |  ?     | ? |
-|   CLRP  |  ?     | REF : [https://www.kaggle.com/code/chamecall/clrp-finetune-roberta-large/notebook] |
-|   SETTING_LR_STRATEGY_IN_BERT_LAYER  |  ?     | REF : [https://www.kaggle.com/code/chamecall/clrp-finetune-roberta-large/notebook] |
-|   PESUDO_LABEL  |  ?     | ? |
-|   FGM  |  ?     | ? |
-|   EMA  |  ?     | ? |
-|-|-|-
+| Feature |  Status  | Note | new | 
+|:----:|:--------:|:-----:|:-----:|
+|   mse    | done | - | -|
+|   classifier  | done     | - | -|
+|   margin_rank  | ?     | - | -|
+|   mixed_model | done | - | -|
+|   cross_validation  | done   | - |-|
+|   knowledge_distillation  | done     | reg, clf | - |
+|   text_features_exactor  | ?    | tfidf+bm25+textrank+ngram |  (1) |
+|   clrp  |  ?     | ? |  (2) |
+|   warm_up_lr  |  ?     | REF : [https://www.kaggle.com/code/chamecall/ | (3) |clrp-finetune-roberta-large/notebook] |-|
+|   ?  |  ?     | REF : [https://www.kaggle.com/code/chamecall/clrp-finetune-roberta-large/notebook] |-|
+|   PESUDO_LABEL  |  ?     | ? |-|
+|   FGM  |  ?     | ? |-|
+|   EMA  |  ?     | ? |-|
+|-|-|-|-
 
-CLRP
