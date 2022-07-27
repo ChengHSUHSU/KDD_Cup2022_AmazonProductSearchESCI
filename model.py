@@ -34,8 +34,11 @@ class CrossEncoder:
         use_margin_rank_loss = args.model_cfg['use_margin_rank_loss']
         margin = args.model_cfg['margin']
         classifier_weights = args.model_cfg['classifier_weights']
+        teacher_model_path = args.model_cfg['teacher_model_path']
         self.updated_regression_label = args.model_cfg['updated_regression_label']
         self.updated_classifier_label = args.model_cfg['updated_classifier_label']
+        self.use_knowledge_distillation_logits = args.model_cfg['use_knowledge_distillation_logits']
+        
 
         # device
         self._target_device = torch.device(device) 
@@ -77,6 +80,58 @@ class CrossEncoder:
         self.training_info = {'train_x' : [], 'train_y' : [], 'logits' : []}
 
 
+        # update label value (knowledge distillation)
+        if self.use_knowledge_distillation_logits is True:
+            try:
+                path = teacher_model_path + '_data.pkl'
+                with open(path, "rb") as f:
+                    data = pickle.load(f)
+                pre_training_info = data['training_info']
+                self.teacher_info = self.parsing_pre_training_info(pre_training_info=pre_training_info)
+            except:
+                self.teacher_info = None
+                print('[Warning] Cannot load teacher_training_info, please check again...')
+
+
+
+    def update_label_value(self, label_name=str, query=str, pdi=str):
+        # init parameter
+        use_classfier = self.args.model_cfg['use_classfier']
+        use_knowledge_distillation_logits = self.args.model_cfg['use_knowledge_distillation_logits']
+
+
+        # main
+        if use_knowledge_distillation_logits is False or self.teacher_info is None:
+            if use_classfier is False:
+                return self.updated_regression_label[label_name]
+            else:
+                return self.updated_classifier_label[label_name]
+        else:
+            if use_classfier is False: 
+                logits_ = self.teacher_info[query][pdi][0]
+            else:
+                logits_ = self.teacher_info[query][pdi]
+
+
+
+
+    def parsing_pre_training_info(self, pre_training_info=dict):
+        # init
+        teacher_info = {}
+        train_x = pre_training_info['train_x']
+        train_y = pre_training_info['train_y']
+        logits = pre_training_info['logits']
+        # main
+        for i, (query, pdi) in enumerate(train_x):
+            logist_ = logits[i]
+            if query not in teacher_info:
+                teacher_info[query] = dict()
+            teacher_info[query][pdi] = logist_
+            print(logist_)
+        return teacher_info
+
+
+
 
     def smart_batching_collate(self, batch):
         texts = [[] for _ in range(len(batch[0].texts['texts']))]
@@ -89,7 +144,9 @@ class CrossEncoder:
             pdi = texts_info['pdi']
             for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
-            labels.append(self.updated_regression_label[example.label])
+            labels.append(self.update_label_value(label_name=example.label,
+                                                  query=query,
+                                                  pdi=pdi))
             organics.append([query, pdi])
 
         tokenized = self.tokenizer(*texts, 
@@ -119,7 +176,7 @@ class CrossEncoder:
             pdi = texts_info['pdi']
             for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
-            labels.append(self.updated_classifier_label[example.label])
+            labels.append(self.update_label_value(label_name=example.label))
             organics.append([query, pdi])
 
         tokenized = self.tokenizer(*texts, padding=True, truncation='longest_first', return_tensors="pt", max_length=self.max_length)
@@ -146,9 +203,9 @@ class CrossEncoder:
             right_pdi = texts_info['right_pdi']
             for idx, text in enumerate(texts_info['texts']):
                 texts[idx].append(text.strip())
-            labels.append(self.updated_regression_labelp[example.label])
+            labels.append(self.update_label_value(label_name=example.label))
             organics.append([query, left_pdi, right_pdi])
-        
+
         for q_idx, p_idx in [(0, 1), (0, 2)]:
             q_texts = texts[q_idx]
             p_texts = texts[p_idx]
@@ -235,15 +292,12 @@ class CrossEncoder:
                     if self.config.num_labels == 1:
                         logits = logits.view(-1)
                         loss_value = self.loss_fct(logits, labels)
-                        logits_ent = activation_fct(logits).tolist()
+                        #logits_ent = activation_fct(logits).tolist()
                     else:
                         loss_value = self.loss_fct(logits.view(-1,self.config.num_labels),
                                                    labels.type_as(logits).view(-1,self.config.num_labels))
-                        logits_ent = torch.softmax(activation_fct(logits), dim=1).tolist()
-                    # save training info
-                    self.training_info['train_x'] += organics
-                    self.training_info['train_y'] += labels.tolist()
-                    self.training_info['logits'] += logits_ent
+                        #logits_ent = torch.softmax(activation_fct(logits), dim=1).tolist()
+
 
                 # backward to loss_value
                 loss_value.backward()
@@ -264,13 +318,11 @@ class CrossEncoder:
         self.model.save_pretrained(path)
         self.tokenizer.save_pretrained(path)
 
-        if save_training_info is True:
-            path_pkl = path + '_data.pkl'
-            data = {'training_info' : self.training_info} 
-            with open(path, "wb") as f:
-                pickle.dump(data, f)
 
 
+
+
+ 
 
 
 
