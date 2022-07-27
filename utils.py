@@ -307,12 +307,12 @@ def evaluation(query_list=list,
     with torch.no_grad():
         # build query2passage_pd5score
         if use_mixed_model is False:
-            query2passage_pd5score = build_query2passage5score(query_list=query_list, 
-                                                               query2data=query2data,
-                                                               pd2data=pd2data,
-                                                               auto_model=auto_model, 
-                                                               auto_trf=auto_trf,
-                                                               args=args)
+            query2passage_pd5score, training_info = build_query2passage5score(query_list=query_list, 
+                                                                              query2data=query2data,
+                                                                              pd2data=pd2data,
+                                                                              auto_model=auto_model, 
+                                                                              auto_trf=auto_trf,
+                                                                              args=args)
         else:
             query2passage_pd5score = build_query2passage5score_mixed(query_list=query_list, 
                                                                      query2data=query2data,
@@ -406,18 +406,16 @@ def evaluation(query_list=list,
                 add_log_record(message='\n'+dat.to_string(), args=args)
 
         # save query_ndcg for train_data
-        if save_training_info is True:
+        if save_training_info is True and category == 'Train':
             path_pkl = model_save_path + '_data.pkl'
-            try:
-                with open(path_pkl, "rb") as f:
-                    data = pickle.load(f)
-            except:
-                data = dict()
-                print('[Warning] : {} is not exist.'.format(path_pkl))
-            data['query_locale2query2score'] = query_locale2query2score
-            data['query_locale2query2ndcg_matrix'] = query_locale2query2ndcg_matrix
+            data = {
+                    'training_info' : training_info,
+                    'query_locale2query2score' : query_locale2query2score,
+                    'query_locale2query2ndcg_matrix' : query_locale2query2ndcg_matrix
+                   } 
             with open(path_pkl, "wb") as f:
                 pickle.dump(data, f)
+
 
 
 
@@ -606,11 +604,17 @@ def build_query2passage5score(query_list=list,
     # init container
     query2passage5score = dict() 
     data_x_infer = []
+    data_y_infer = []
+    training_info = {'train_x' : [], 'train_y' : [], 'logits' : []}
+
+    # gain2label_name (hard code)
+    gain2label_name = {1.0 : 'E', 0.1 : 'S', 0.01 : 'C', 0.0 : 'I'}
 
     # collect passage data
     for query in query_list:
-        pdi_list = query2data[query]['all']
-        data_x_infer += [[query, pdi] for pdi in pdi_list]
+        data_list = query2data[query]['data']
+        data_x_infer += [[query, data['product_new_id']] for data in data_list]
+        data_y_infer += [gain2label_name[data['gain']] for data in data_list]
 
     # init batch_num
     batch_num = int(len(data_x_infer) / batch_size) + 1
@@ -619,6 +623,7 @@ def build_query2passage5score(query_list=list,
     # main - infer
     for i in tqdm(range(batch_num)):
         data_x_batch = data_x_infer[i*batch_size : (i+1)*batch_size]
+        data_y_batch = data_y_infer[i*batch_size : (i+1)*batch_size]
         if len(data_x_batch) != 0:
             data_text_x_batch, sent_length = convert_q_pdi_to_q_sent_feature(q_pdi_list=data_x_batch,
                                                                              pd2data=pd2data,
@@ -626,13 +631,19 @@ def build_query2passage5score(query_list=list,
                                                                              args=args)
 
                 
-            score_list = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch, 
-                                                  auto_model=auto_model, 
-                                                  auto_trf=auto_trf, 
-                                                  sent_length=sent_length,
-                                                  args=args,
-                                                  use_classfier=use_classfier).tolist()
-           
+            score_list, logits_ent = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch,
+                                                              auto_model=auto_model, 
+                                                              auto_trf=auto_trf, 
+                                                              sent_length=sent_length,
+                                                              args=args,
+                                                              use_classfier=use_classfier)
+            score_list = score_list.tolist()
+            # save training info
+            training_info['train_x'] += data_x_batch
+            training_info['train_y'] += data_y_batch
+            training_info['logits'] += logits_ent
+
+
             for j, query_sent_feature in enumerate(data_text_x_batch):
                 score = score_list[j][0]
                 query = query_sent_feature[0]
@@ -643,26 +654,34 @@ def build_query2passage5score(query_list=list,
                     query2passage5score[query] = {'mapping_score' : [], 'mapping_entity' : []}
                 query2passage5score[query]['mapping_score'].append([pdi, score])
                 query2passage5score[query]['mapping_entity'].append(pdi)
-    return query2passage5score
+    return query2passage5score, training_info
 
 
 
 
-def AutoCrossEncoder_feature(head_tail_list=list, auto_model=None, auto_trf=None, sent_length=list, args=None, use_classfier=False):
+def AutoCrossEncoder_feature(head_tail_list=list, 
+                             auto_model=None, 
+                             auto_trf=None, 
+                             sent_length=list, 
+                             args=None, 
+                             use_classfier=False):
+
     bert_input = auto_trf.convert_batch_sent_to_bert_input(batch_sent=head_tail_list, sent_length=sent_length)
     bert_input = auto_trf.transform_bert_input_into_tensor(bert_input=bert_input)
     if use_classfier is False:
         logits = auto_model(**bert_input).logits
+        logits_ent = logits.tolist()[:]
     else:
         num_labels = args.model_cfg['num_labels']
         logits = auto_model(**bert_input).logits
+        logits_ent = logits.tolist()[:]
         logits = torch.sigmoid(logits)
         pred_labels = np.argmax(logits.tolist(), axis=1)
         pred_labels_onehot = np.zeros((pred_labels.size, num_labels))
         pred_labels_onehot[np.arange(pred_labels.size), pred_labels] = 1
         score_array = torch.sum(logits.cpu() * pred_labels_onehot, axis=1).numpy() + (num_labels-1 - pred_labels)
         logits = score_array.reshape(-1, 1)
-    return logits 
+    return logits, logits_ent
 
 
 
@@ -681,6 +700,7 @@ def build_query2passage5score_mixed(query_list=list,
     # init container
     query2passage5score = dict() 
     locale2data_x_infer = {'us' : [], 'es' : [], 'jp' : []}
+    training_info = {'train_x' : [], 'train_y' : [], 'logits' : []}
 
     # init locale2model_name2qps
     locale2model_name2qps = {'us' : dict(), 'es' : dict(), 'jp' : dict()}
@@ -724,12 +744,13 @@ def build_query2passage5score_mixed(query_list=list,
                                                                                         eval_mode=True,
                                                                                         args=args)
                         # infer score    
-                        score_list = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch, 
-                                                            auto_model=model_, 
-                                                            auto_trf=trf_, 
-                                                            sent_length=sent_length,
-                                                            args=args,
-                                                            use_classfier=use_classfier).tolist()
+                        score_list, _ = AutoCrossEncoder_feature(head_tail_list=data_text_x_batch, 
+                                                                 auto_model=model_, 
+                                                                 auto_trf=trf_, 
+                                                                 sent_length=sent_length,
+                                                                 args=args,
+                                                                 use_classfier=use_classfier)
+                        score_list = score_list.tolist()
                         # collect query-product-score data
                         for j, query_sent_feature in enumerate(data_text_x_batch):
                             score = score_list[j][0]
