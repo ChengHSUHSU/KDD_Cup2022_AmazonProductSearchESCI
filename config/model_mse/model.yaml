@@ -5,7 +5,8 @@
  
 # often used
 bert_model_name: 'roberta-base'
-model_save_path : 'save_model/test'
+
+model_save_path : 'save_model/student_test'
 updated_regression_label : {'E' : 1.0, 'S' : 0.1, 'C' : 0, 'I' : 0}
 updated_classifier_label : {'E' : 0, 'S' : 1, 'C' : 2, 'I' : 2}
 classifier_weights : [0.4115, 1.3260, 3.3296]
@@ -14,22 +15,31 @@ data_info_path : 'save_data/data_info_test'
 target_fold : 0
 batch_size : 32
 save_training_info : True
-only_eval : True
-use_mixed_model : True
+
+
+
+only_eval : False
+use_mixed_model : False
 model_info : {
               'us' : [['save_model/test', 0.5], ['save_model/test2', 0.5]],
               'es' : [['save_model/roberta_xlm_es_dp_E1_S0_CIz1', 0.5], ['save_model/roberta_xlm_dp_afv5_nodp', 0.5]],
               'jp' : [['save_model/roberta_xlm_jp_dp_E1_S0_CIz1', 0.5], ['save_model/roberta_xlm_dp_afv5_nodp', 0.5]]
              }
 
+
+use_knowledge_distillation_logits : True
+teacher_model_path : 'save_model/teacher_test'
+
+
+
 # less used
 use_margin_rank_loss : False
-use_classfier : True
+use_classfier : False
 max_query_length : 20
 max_title_length : 60
 use_additional_pdfeature : True
 additional_pdfeature_locale : ['us', 'es']
-num_labels : 3
+num_labels : 1
 device : 'cuda'
 lr : 7e-6
 epoch_num : 1
