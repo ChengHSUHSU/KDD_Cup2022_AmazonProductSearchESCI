@@ -44,7 +44,7 @@ BTW, we not yet submit pretrain model to leaderboard.
 
 
 
-## Results
+<!-- ## Results
 The following table shows the baseline results obtained through the different public tests of Task1.
 
 | Model |  Metric  | Online-Score |
@@ -104,4 +104,4 @@ The following table shows the baseline results obtained through the different pu
 |   FGM  |  ?     | ? |-|
 |   EMA  |  ?     | ? |-|
 |-|-|-|-
-
+ -->
