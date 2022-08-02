@@ -12,7 +12,8 @@ from data_process import additional_data_process
 from model import CrossEncoder
 from model import load_cross_encoder_model
 from utils import evaluation
-
+import spacy
+nlp = spacy.load("en_core_web_sm")
 
 #cuda device
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -29,6 +30,7 @@ model_cfg = load_config(path='config/model_mse/model.yaml')
 parser = argparse.ArgumentParser()
 parser.add_argument("--data_process_cfg", type=dict, default=data_process_cfg, help="None")
 parser.add_argument("--model_cfg", type=dict, default=model_cfg, help="None")
+parser.add_argument("--nlp", type=None, default=nlp, help="None")
 args = parser.parse_args()
 print(args)
 
