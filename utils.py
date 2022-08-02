@@ -8,10 +8,19 @@ import pickle
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.sparse import csr_matrix
+from sknetwork.ranking import PageRank
+import networkx as nx
+from rank_bm25 import BM25Okapi
 
 
 
- 
+
+
+
+
+
+
 
 
 
@@ -104,8 +113,10 @@ def convert_pd2sent_feature(q=None, pdi=int, pd2data=dict, args=None):
         text_feature = product_bullet_point.replace('\n', '. ')  + '. ' + product_description
         
         # extract keyword algorithm
-        ksng_info = KeySentNgram_algo(query=q, title=product_title, text_feature=text_feature, ngram=5, test=False)
-        product_title_update = ksng_info['title']  +'. '.join(ksng_info['keysent_ngram'])
+        #ksng_info = KeySentNgram_algo(query=q, title=product_title, text_feature=text_feature, ngram=5, test=False)
+        #product_title_update = ksng_info['title']  +'. '.join(ksng_info['keysent_ngram'])
+        product_title_update = KeySentNgram_algo_new(query=q, product_title=product_title, product_documents=text_feature, mode='BM25', args=args)
+        product_title_update = '. '.join(product_title_update)
     else:
         if product_bullet_point != 'Empty':
             af_backups = product_bullet_point.split('\n')
@@ -289,6 +300,7 @@ def evaluation(query_list=list,
     target_query_locale = args.data_process_cfg['target_query_locale']
     model_save_path = args.model_cfg['model_save_path']
     save_training_info = args.model_cfg['save_training_info']
+    foolish_threshold = args.model_cfg['foolish_threshold']
 
     # init container
     ndcg_avg_score = []
@@ -404,6 +416,18 @@ def evaluation(query_list=list,
                 # add log
                 add_log_record(message='specific region ndcg_matrix ({}) ({}) : '.format(category, locale), args=args)
                 add_log_record(message='\n'+dat.to_string(), args=args)
+        
+        # update training_info (about foolish)
+        foolish_vals = []
+        train_x = training_info['train_x']
+        for query, pdi in train_x:
+            # query_locale
+            query_locale = query2data[query]['locale']
+            if query_locale2query2score[query_locale][query] < foolish_threshold:
+                foolish_vals.append(1)
+            else:
+                foolish_vals.append(0)
+        training_info['foolish'] = foolish_vals
 
         # save query_ndcg for train_data
         if save_training_info is True and category == 'Train':
@@ -605,7 +629,7 @@ def build_query2passage5score(query_list=list,
     query2passage5score = dict() 
     data_x_infer = []
     data_y_infer = []
-    training_info = {'train_x' : [], 'train_y' : [], 'logits' : []}
+    training_info = {'train_x' : [], 'train_y' : [], 'logits' : [], 'foolish' : []}
 
     # gain2label_name (hard code)
     gain2label_name = {1.0 : 'E', 0.1 : 'S', 0.01 : 'C', 0.0 : 'I'}
@@ -638,12 +662,6 @@ def build_query2passage5score(query_list=list,
                                                               args=args,
                                                               use_classfier=use_classfier)
             score_list = score_list.tolist()
-            # save training info
-            training_info['train_x'] += data_x_batch
-            training_info['train_y'] += data_y_batch
-            training_info['logits'] += logits_ent
-
-
             for j, query_sent_feature in enumerate(data_text_x_batch):
                 score = score_list[j][0]
                 query = query_sent_feature[0]
@@ -654,6 +672,12 @@ def build_query2passage5score(query_list=list,
                     query2passage5score[query] = {'mapping_score' : [], 'mapping_entity' : []}
                 query2passage5score[query]['mapping_score'].append([pdi, score])
                 query2passage5score[query]['mapping_entity'].append(pdi)
+            # build foolish_vals (when teacher perf is bad, we dont use it)
+
+            # save training info
+            training_info['train_x'] += data_x_batch
+            training_info['train_y'] += data_y_batch
+            training_info['logits'] += logits_ent
     return query2passage5score, training_info
 
 
@@ -862,6 +886,213 @@ def add_log_record(message, args=None):
     except Exception as error_message:
         print('error_message---------------')
         print(error_message)
+
+
+
+
+
+
+def sync_rel_matrix_into_graph(node_list=list, rel_matrix=dict, graph=None):
+    for i in range(len(node_list)):
+        node_i = node_list[i]
+        for j in range(len(node_list)):
+            node_j = node_list[j]
+            if i != j:
+                weight = rel_matrix[node_i][node_j]
+                graph = build_digraph(graph=graph, 
+                                      edges=[(i, j, weight)], 
+                                      mode='add_weighted_edges')
+    return graph
+
+
+
+def ExtractSentByBM25(target_texts=list, source_texts=list):
+    extracted_sents = []
+    source_sents = [source_sent.split() for source_sent in source_texts]
+    bm25 = BM25Okapi(source_sents)
+    for target_sent in target_texts:
+        source_sents_score = list(bm25.get_scores(target_sent.split()))
+        source_sents4score = [[' '.join(sent), source_sents_score[i]] for i, sent in enumerate(source_sents)]
+        source_sents4score = sorted(source_sents4score, reverse=True, key=lambda x:x[1])
+        for sent, score in source_sents4score:
+            if sent not in extracted_sents:
+                extracted_sents.append(sent)
+                break
+    return extracted_sents
+
+
+
+
+
+def build_adjacency_matrix(graph):
+    row = []
+    col = []
+    data = []
+    nodes = graph.nodes()
+    length = len(nodes)
+    for current_node, _ in nodes.items():
+        neighbors_sum = sum(graph.get_edge_data(current_node, neighbor)['weight'] for neighbor in graph.neighbors(current_node))
+        #neighbors_sum = 1.0
+        for neighbor_node, _ in nodes.items():
+            edge_weight = graph.get_edge_data(current_node, neighbor_node)
+            if edge_weight is not None:
+                edge_weight = float(edge_weight['weight'])
+            else:
+                edge_weight = 0.0
+            if edge_weight != 0:
+                row.append(current_node)
+                col.append(neighbor_node)
+                data.append(edge_weight / neighbors_sum)
+    return csr_matrix((data,(row,col)), shape=(length,length))
+
+
+
+def build_digraph(graph=None, edges=list, mode=None):
+    '''
+    ex. 
+    [(1, 0, 0.5),
+     (2, 0, 0.1),
+     (0, 1, 0.1),
+     (2, 1, 0.1)]
+    '''
+    if mode == 'init':
+        graph = nx.DiGraph()
+    elif mode == 'add_weighted_edges':
+        graph.add_weighted_edges_from(edges)
+    elif mode == 'clone':
+        graph_cp = graph.copy()
+        return graph_cp
+    return graph
+
+
+
+def build_rel_matrix(target_texts=list, source_texts=list, metric_mode=None):
+    # init 
+    rel_matrix = dict()
+    all_scores = []
+    # main
+    for target_sent in target_texts:
+        target_sent_tokens = target_sent.split()
+        source_sents_tokens = [doc.split() for doc in source_texts]
+        bm25 = BM25Okapi(source_sents_tokens)
+        source_sent_scores = list(bm25.get_scores(target_sent_tokens))
+        rel_matrix[target_sent] = dict()
+        for i, source_sent in enumerate(source_texts):
+            rel_matrix[target_sent][source_sent] = source_sent_scores[i]
+            all_scores += [source_sent_scores[i]]
+    # min-max-normalization
+    max_score = max(all_scores)
+    min_score = min(all_scores)
+    target_texts = list(set(target_texts))
+    source_texts = list(set(source_texts))
+    for target_sent in target_texts:
+        for i, source_sent in enumerate(source_texts):
+            score = rel_matrix[target_sent][source_sent]
+            try:
+                min_max_score = (score - min_score) / (max_score - min_score)
+            except:
+                min_max_score = 0.0
+            rel_matrix[target_sent][source_sent] = min_max_score
+    return rel_matrix
+
+
+
+
+def build_text_grams_data(text=None, ngrams=list):
+    # init 
+    texts = []
+    text_grams = []
+    # build texts
+    if isinstance(text, str) is True:
+        texts.append(text)
+    elif isinstance(text, list) is True:
+        texts += text
+    # build text_grams
+    for sent in texts:
+        sub_text_grams = []
+        sent = sent.lower()
+        words = sent.split()
+        for ngram in ngrams:
+            gram_num = int(len(words) / ngram) + 1
+            for i in range(gram_num):
+                subw = words[i*ngram:(i+1)*ngram]
+                subw_ = ' '.join(subw)
+                if len(subw) >= 2 and subw_ != '':
+                    sub_text_grams.append(subw_)
+        if len(sub_text_grams) != 0:
+            text_grams += sub_text_grams
+        else:
+            if sent != '':
+                text_grams += [sent]
+    return text_grams
+
+
+
+
+def spacy_lemmatizer(texts=list, nlp=None):
+    # init
+    texts_lemmatizer = []
+    doc_gen = nlp.pipe(texts, batch_size=32)
+    # main
+    for doc in doc_gen:
+        texts_lemmatizer.append(' '.join([token.lemma_.lower() for token in doc]))
+    return texts_lemmatizer
+
+
+
+def KeySentNgram_algo_new(query=str, product_title=str, product_documents=list, mode=None, args=None):
+    '''
+    recent version, it is too slow. due to spacy_lemmatizer
+    '''
+    # spacy_lemmatizer
+    query =  spacy_lemmatizer(texts=[query], nlp=args.nlp)[0]
+    product_title =  spacy_lemmatizer(texts=[product_title], nlp=args.nlp)[0]
+    product_documents =  spacy_lemmatizer(texts=product_documents, nlp=args.nlp)
+    # init fragments_q, fragments_pd
+    fragments_q = build_text_grams_data(text=query, ngrams=[2, 3])
+    fragments_pd = build_text_grams_data(text=product_documents, ngrams=[10])
+    # query - product_title, product_documents (BM25)
+    fragments_pt = build_text_grams_data(text=product_title, ngrams=[5])
+    target_texts = fragments_q
+    source_texts = fragments_pt + fragments_pd
+    extracted_sentsA = ExtractSentByBM25(target_texts=target_texts, source_texts=source_texts)
+    if mode == 'BM25' and len(product_documents) != 0:
+        # product_title - product_documents (BM25)
+        fragments_pt = build_text_grams_data(text=product_title, ngrams=[5, 10])
+        target_texts = fragments_pt
+        source_texts = fragments_pd
+        extracted_sentsB = ExtractSentByBM25(target_texts=target_texts, source_texts=source_texts)
+    elif mode == 'PageRank' and len(product_documents) != 0:
+        document_rel_matrix = build_rel_matrix(target_texts=fragments_pd, source_texts=fragments_pd)
+        document_graph = build_digraph(graph=None, edges=None, mode='init')
+        node_list = list(document_rel_matrix.keys())
+        document_graph = sync_rel_matrix_into_graph(node_list=node_list, rel_matrix=document_rel_matrix, graph=document_graph)
+        adjacency = build_adjacency_matrix(document_graph)
+        pagerank = PageRank(n_iter=20)
+        pagerank_scores = list(pagerank.fit_transform(adjacency))
+        node4score = [[node_list[i], pagerank_scores[i]] for i in range(len(node_list))]
+        node4score = sorted(node4score, reverse=True, key=lambda x:x[1])[:len(fragments_q)]
+        extracted_sentsB = [node for node, score in node4score]
+    else:
+        extracted_sentsB = []
+    # build extracted_sents
+    extracted_sents = extracted_sentsA
+    for sent in extracted_sentsB:
+        if sent not in extracted_sents:
+            extracted_sents.append(sent)
+    return extracted_sents
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
